@@ -31,8 +31,4 @@ Deploy on Vercel as is. The radar and SAAA are only reached through `/api/radar`
 - `src/components/deck/`: the cockpit (`FlightDeck.js` is the page).
 - `src/components/landing/`: the landing page with the edition choice.
 
-## Logos
-
-Drop the server logos in `public/logos/` as `gta-world.png` and `gta-world-france.png` (square works best). The landing cards show a placeholder until the files exist.
-
 Community tool. Not affiliated with GTA World, GTA World France or the SAAA.
