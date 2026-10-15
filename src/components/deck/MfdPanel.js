@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AIRPORTS } from "@/lib/atc/airports";
 import { GTA_MAP, mapWorldBounds, worldToChart } from "@/lib/atc/geo";
-import { TAXI } from "@/lib/atc/taxi";
 import { bearing, cardinal, distance, formatNm } from "@/lib/atc/radar";
 import { restrictedBoxes, strictMsaBoxes } from "@/lib/atc/airspace";
 import { createMotionTracker } from "@/lib/atc/motion";
@@ -47,7 +45,7 @@ function useFramePainter(paint) {
 // Everything on the map is drawn in world meters (y flipped for SVG) inside one group that
 // is translated to keep our aircraft centered: animating the view is one attribute per frame.
 function MapPage({ flight, update, own, traffic, center, rangeNm, setRangeNm, tracker }) {
-  const { t } = useEdition();
+  const { edition, t, airports } = useEdition();
   const r = rangeNm * M_PER_NM;
   const fs = r / 17;
   const worldRef = useRef(null);
@@ -104,11 +102,12 @@ function MapPage({ flight, update, own, traffic, center, rangeNm, setRangeNm, tr
               />
             )}
             {RESTRICTED.map((b, i) => box(b, `r${i}`, "fill-av-red/20 stroke-av-red"))}
-            {STRICT_MSA.map((b, i) => box(b, `m${i}`, "fill-av-amber/5 stroke-av-amber/70", true))}
-            {Object.values(AIRPORTS).map((a) => (
+            {/* Minimum safe altitude areas come from the SAAA Aviation Code: GTA World only. */}
+            {edition.saaa && STRICT_MSA.map((b, i) => box(b, `m${i}`, "fill-av-amber/5 stroke-av-amber/70", true))}
+            {Object.values(airports).map((a) => (
               <g key={a.icao} transform={`translate(${a.position.x} ${-a.position.y})`}>
                 <circle r={r / 45} className="fill-none stroke-av-cyan" strokeWidth={2} vectorEffect="non-scaling-stroke" />
-                <text y={-r / 30} fontSize={fs} textAnchor="middle" className="fill-av-cyan font-avmono font-bold">{a.icao}</text>
+                <text y={-r / 30} fontSize={fs} textAnchor="middle" className="fill-av-cyan font-avmono font-bold">{a.code}</text>
               </g>
             ))}
             {traffic.map((t) => {
@@ -174,9 +173,9 @@ function MapPage({ flight, update, own, traffic, center, rangeNm, setRangeNm, tr
 /* ---------------------------------------------------------------- CHART page */
 
 function ChartPage({ icao, setIcao, flight, update, own, traffic, route, geo, onCalibrate, onResetCalibration, isCalibrated, saaaData, tracker }) {
-  const { edition, t } = useEdition();
-  const airport = AIRPORTS[icao];
-  const graph = TAXI[icao];
+  const { edition, t, airports, taxi } = useEdition();
+  const airport = airports[icao];
+  const graph = taxi[icao];
   const full = { x: 0, y: 0, w: geo.width, h: geo.height };
   const [view, setView] = useState(full);
   const [calibrating, setCalibrating] = useState(false);
@@ -293,7 +292,7 @@ function ChartPage({ icao, setIcao, flight, update, own, traffic, route, geo, on
       <div className="flex flex-wrap items-center justify-between gap-2">
         <ChipGroup
           size="sm"
-          options={Object.values(AIRPORTS).map((a) => ({ value: a.icao, label: a.icao }))}
+          options={Object.values(airports).map((a) => ({ value: a.icao, label: a.code }))}
           value={icao}
           onChange={setIcao}
         />
@@ -459,7 +458,7 @@ function ChartPage({ icao, setIcao, flight, update, own, traffic, route, geo, on
 /* ------------------------------------------------------------- MFD wrapper */
 
 export default function MfdPanel({ flight, update, radar, own, route, contextIcao, geoFor, calibrated, onCalibrate, onResetCalibration, saaaData }) {
-  const { edition, t } = useEdition();
+  const { edition, t, airports } = useEdition();
   const [page, setPage] = useState("MAP");
   const [rangeNm, setRangeNm] = useState(2);
   const [chartIcao, setChartIcao] = useState(contextIcao);
@@ -475,7 +474,7 @@ export default function MfdPanel({ flight, update, radar, own, route, contextIca
   const phaseGroup = ["clearance", "ground", "taxiin"].includes(flight.phase) ? "CHART" : "MAP";
   useEffect(() => setPage(phaseGroup), [phaseGroup]);
 
-  const center = own || AIRPORTS[contextIcao].position;
+  const center = own || airports[contextIcao].position;
   const traffic = (snapshot?.aircraft || [])
     .filter((a) => a !== own)
     .map((a) => ({ ...a, distanceM: distance(center, a), fromCenter: bearing(center, a) }))

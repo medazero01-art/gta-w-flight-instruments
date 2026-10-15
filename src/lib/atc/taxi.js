@@ -78,7 +78,21 @@ export const TAXI = {
   },
 };
 
-const OPPOSITE = { "21": "03", "03": "21", "12L": "30R", "30R": "12L", "12R": "30L", "30L": "12R", "25": "07", "07": "25", "22": "04", "04": "22", "24": "06", "06": "24" };
+// The other end of a runway, as the graph names it: "30L" -> "12R", "03" -> "21", "8L" -> "26R", "5" -> "23".
+const parseRunway = (id) => {
+  const match = /^(\d{1,2})([LRC]?)$/.exec(id || "");
+  return match ? { n: Number(match[1]), side: match[2] } : null;
+};
+function oppositeEnd(graph, id) {
+  const end = parseRunway(id);
+  if (!end) return null;
+  const n = end.n > 18 ? end.n - 18 : end.n + 18;
+  const side = { L: "R", R: "L" }[end.side] ?? end.side;
+  return Object.keys(graph.holds).find((key) => {
+    const other = parseRunway(key);
+    return other && other.n === n && other.side === side;
+  });
+}
 
 const APRON_COST = 1.6;
 // Crossing a runway is something to avoid when another way exists.
@@ -160,8 +174,9 @@ export function nearestNode(graph, p) {
 
 // Outbound: parking spot (or a radar fix) -> holding point of the runway end.
 // Inbound: vacating the landing runway (far end, or a radar fix) -> parking spot.
-export function taxiRoute({ icao, spot, runway, direction, startNode }) {
-  const graph = TAXI[icao];
+// `taxi` is the edition's set of networks (GTA World's by default).
+export function taxiRoute({ taxi = TAXI, icao, spot, runway, direction, startNode }) {
+  const graph = taxi[icao];
   if (!graph || !runway) return null;
   let steps;
   let from;
@@ -175,7 +190,7 @@ export function taxiRoute({ icao, spot, runway, direction, startNode }) {
     if (!parking) return null;
     // Without a radar fix we assume the roll-out ends near the far end: search from the
     // parking spot to the best exit, then read the path the other way round.
-    const exits = startNode ? [startNode] : graph.holds[OPPOSITE[runway]] || [];
+    const exits = startNode ? [startNode] : graph.holds[oppositeEnd(graph, runway)] || [];
     if (!exits.length) return null;
     const back = shortestPath(graph, parking, exits);
     steps = back && reverseSteps(back);

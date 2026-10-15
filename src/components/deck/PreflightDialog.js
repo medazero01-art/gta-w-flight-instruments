@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AIRPORTS } from "@/lib/atc/airports";
 import { ageLabel, closedRunwayEnds, recommendedRunway, relevantNotams, weatherFor } from "@/lib/atc/briefing";
-import { CHART_GEO } from "@/lib/atc/geo";
-import { TAXI, taxiRoute } from "@/lib/atc/taxi";
+import { taxiRoute } from "@/lib/atc/taxi";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, FieldLabel, softkeyClass } from "./ui";
 import { metar } from "./Briefing";
 
-const airportOptions = Object.values(AIRPORTS).map((a) => ({ value: a.icao, label: a.icao, title: a.name }));
 const inputClass =
   "w-full rounded border border-av-line bg-black/50 px-2.5 py-1.5 font-avmono text-sm text-av-cyan placeholder-av-mute focus:outline-none focus:border-av-cyan";
 const PRIORITY_STYLES = {
@@ -20,8 +17,7 @@ const PRIORITY_STYLES = {
 };
 
 // Runway ends the weather and the NOTAMs have something to say about.
-function runwayHints(icao, saaaData) {
-  const airport = AIRPORTS[icao];
+function runwayHints(airport, saaaData) {
   const closed = closedRunwayEnds(saaaData?.notams, airport);
   return { closed, best: recommendedRunway(airport, weatherFor(airport, saaaData?.weather), closed) };
 }
@@ -33,13 +29,13 @@ function runwayHints(icao, saaaData) {
 // (the others would pile up); hovering a spot names it too.
 // `showRoute` is off for a helicopter lifting off from / landing on its spot: no taxi there.
 function ChartPicker({ icao, spot, runway, direction, showRoute = true, closed, best, onSpot, onRunway }) {
-  const { t } = useEdition();
-  const airport = AIRPORTS[icao];
-  const geo = CHART_GEO[icao];
-  const graph = TAXI[icao];
+  const { t, airports, taxi, charts } = useEdition();
+  const airport = airports[icao];
+  const geo = charts[icao];
+  const graph = taxi[icao];
   const [hover, setHover] = useState(null);
   const k = geo.width / 60;
-  const route = graph && showRoute ? taxiRoute({ icao, spot, runway, direction }) : null;
+  const route = graph && showRoute ? taxiRoute({ taxi, icao, spot, runway, direction }) : null;
   const spots = graph ? Object.entries(graph.spots) : [];
 
   return (
@@ -131,6 +127,7 @@ function ChartPicker({ icao, spot, runway, direction, showRoute = true, closed, 
 /* ---------------------------------------------------- reminder strip */
 
 function Reminder({ dep, arr, saaaData }) {
+  const { airports } = useEdition();
   const icaos = [...new Set([dep, arr])];
   const notams = relevantNotams(saaaData?.notams, icaos);
   return (
@@ -142,7 +139,7 @@ function Reminder({ dep, arr, saaaData }) {
         <>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5 font-avmono text-[11px]">
             {icaos.map((icao) => {
-              const w = weatherFor(AIRPORTS[icao], saaaData.weather);
+              const w = weatherFor(airports[icao], saaaData.weather);
               return (
                 <span key={icao} className={w ? "text-av-green" : "text-av-mute"}>
                   {w ? metar(icao, w) : `${icao} no weather`}
@@ -189,7 +186,8 @@ const pointOptions = (t, side) => [
 // Shown once per browser session, filled with the last flight (restored from localStorage):
 // the pilot checks the few things that change between flights and starts right away.
 export default function PreflightDialog({ flight, saaaData, onStart, onResume }) {
-  const { edition, t, ph } = useEdition();
+  const { edition, t, ph, airports } = useEdition();
+  const airportOptions = Object.values(airports).map((a) => ({ value: a.icao, label: a.code, title: a.name }));
   const [draft, setDraft] = useState(() => ({
     callsign: flight.callsign,
     registration: flight.registration,
@@ -220,10 +218,10 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
   // Same airport both ways (pattern work): one runway, one parking, one diagram.
   const roundTrip = draft.dep === draft.arr && depPoint === arrPoint && depPoint !== "site";
   const tab = roundTrip ? "dep" : chartTab;
-  const dep = AIRPORTS[draft.dep];
-  const arr = AIRPORTS[draft.arr];
-  const depHints = runwayHints(draft.dep, saaaData);
-  const arrHints = runwayHints(draft.arr, saaaData);
+  const dep = airports[draft.dep];
+  const arr = airports[draft.arr];
+  const depHints = runwayHints(dep, saaaData);
+  const arrHints = runwayHints(arr, saaaData);
   const ready =
     draft.callsign.trim().length > 1 &&
     (depPoint === "runway" ? Boolean(draft.runway) && !depHints.closed.includes(draft.runway) : true) &&
@@ -232,9 +230,9 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
 
   // Changing an airport brings back what was used there last time.
   const pickDeparture = (icao) =>
-    set({ dep: icao, spot: flight.spots[icao] || AIRPORTS[icao].spots[0], runway: flight.runways[icao] || AIRPORTS[icao].defaultRunway });
+    set({ dep: icao, spot: flight.spots[icao] || airports[icao].spots[0], runway: flight.runways[icao] || airports[icao].defaultRunway });
   const pickArrival = (icao) =>
-    set({ arr: icao, arrSpot: flight.spots[icao] || AIRPORTS[icao].spots[0], arrRunway: flight.runways[icao] || AIRPORTS[icao].defaultRunway });
+    set({ arr: icao, arrSpot: flight.spots[icao] || airports[icao].spots[0], arrRunway: flight.runways[icao] || airports[icao].defaultRunway });
 
   // Escape resumes the previous flight, when there is one to resume.
   useEffect(() => {
@@ -444,13 +442,11 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
               <ChipGroup
                 label={t("Flight rules")}
                 size="sm"
-                options={[
-                  { value: "VFR", label: "VFR" },
-                  { value: "IFR", label: "IFR" },
-                ]}
+                options={ph.FLIGHT_RULES.map((r) => ({ value: r, label: r }))}
                 value={draft.rules}
                 onChange={(rules) => set({ rules })}
               />
+              {edition.center && (
               <ChipGroup
                 label={t("Frequency")}
                 size="sm"
@@ -461,6 +457,7 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
                 value={draft.mode}
                 onChange={(mode) => set({ mode })}
               />
+              )}
             </div>
           </div>
 
@@ -472,8 +469,8 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
                 <ChipGroup
                   size="sm"
                   options={[
-                    { value: "dep", label: `${t("Departure")} · ${depPoint === "site" ? t("site") : draft.dep}` },
-                    { value: "arr", label: `${t("Arrival")} · ${arrPoint === "site" ? t("site") : draft.arr}` },
+                    { value: "dep", label: `${t("Departure")} · ${depPoint === "site" ? t("site") : dep.code}` },
+                    { value: "arr", label: `${t("Arrival")} · ${arrPoint === "site" ? t("site") : arr.code}` },
                   ]}
                   value={tab}
                   onChange={setChartTab}

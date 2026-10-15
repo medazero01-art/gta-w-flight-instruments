@@ -7,6 +7,12 @@ import { contextAirport, displayCallsign, joinSentences as join } from "../phase
 
 export const STATION = "San Andreas Center";
 export const trafficLabel = (name) => `${name} Traffic`;
+// Who we call, for the "Calling" choice: an airport, or null for the whole island.
+export const callingLabel = (airport) => trafficLabel(airport ? airport.traffic : "San Andreas");
+export const comLabel = (flight) => (flight.mode === "CENTER" ? STATION : "CTAF 122.800");
+export const FLIGHT_RULES = ["VFR", "IFR"];
+// "Runway 2-1" or "Runway 21" in the calls.
+export const RUNWAY_STYLES = true;
 
 export const LANDING_TYPES = [
   { value: "full", label: "Full stop" },

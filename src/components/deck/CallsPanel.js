@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { AIRPORTS, ALTITUDES, DIRECTIONS, LANDMARKS } from "@/lib/atc/airports";
+import { ALTITUDES, DIRECTIONS, LANDMARKS } from "@/lib/atc/airports";
 import { closedRunwayEnds, recommendedRunway, weatherFor } from "@/lib/atc/briefing";
 import { ATC_PREFIX, CHAT_LIMIT, PHASES, contextAirport } from "@/lib/atc/phases";
 import { callingForPhase, heliPoint, isHeli } from "@/lib/atc/flight";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, FieldLabel, Panel, TextInput, softkeyClass } from "./ui";
 
-// Which settings each phase needs, in display order.
+// Which settings each phase needs, in display order. A phraseology may bring its own
+// lists (ph.controlKeys): GTA World France has no controller and no traffic pattern.
 const CONTROLS = {
   CTAF: {
     clearance: [],
@@ -241,9 +242,9 @@ function RouteControl({ flight, update, route }) {
 }
 
 function Controls({ flight, update, saaaData, route }) {
-  const { t, ph } = useEdition();
+  const { t, ph, airports } = useEdition();
   const icao = contextAirport(flight);
-  const airport = AIRPORTS[icao];
+  const airport = airports[icao];
   const closed = closedRunwayEnds(saaaData?.notams, airport);
   const best = recommendedRunway(airport, weatherFor(airport, saaaData?.weather), closed);
   const directions = DIRECTIONS.map((d) => ({ ...d, label: t(d.label) }));
@@ -265,8 +266,8 @@ function Controls({ flight, update, saaaData, route }) {
         label={t("Calling")}
         size="sm"
         options={[
-          ...Object.values(AIRPORTS).map((a) => ({ value: a.icao, label: ph.trafficLabel(a.traffic) })),
-          { value: "SA", label: ph.trafficLabel("San Andreas") },
+          ...Object.values(airports).map((a) => ({ value: a.icao, label: ph.callingLabel(a) })),
+          { value: "SA", label: ph.callingLabel(null) },
         ]}
         value={flight.calling}
         onChange={(calling) => update({ calling })}
@@ -315,15 +316,53 @@ function Controls({ flight, update, saaaData, route }) {
     ),
     final: () => <ChipGroup label={t("Final call")} options={ph.FINAL_TYPES} value={flight.finalVerb} onChange={(finalVerb) => update({ finalVerb })} />,
     landing: () => <ChipGroup label={t("Landing")} options={ph.LANDING_TYPES} value={flight.landing} onChange={(landing) => update({ landing })} />,
+    // GTA World France: what we do at the stand, flight plan destination and mission, new destination.
+    purpose: () => (
+      <ChipGroup
+        label={t("At the stand")}
+        size="sm"
+        options={[
+          { value: "parking", label: t("Park and leave") },
+          { value: "loading", label: t("Loading") },
+          { value: "standby", label: t("Stand-by") },
+        ]}
+        value={flight.purpose}
+        onChange={(purpose) => update({ purpose })}
+      />
+    ),
+    plan: () => (
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <TextInput
+          label={t("Flight plan destination")}
+          value={flight.planDest}
+          onChange={(planDest) => update({ planDest })}
+          placeholder={t("{code} if blank (Pacific Ocean…)", { code: airports[flight.arr].code })}
+        />
+        <TextInput label={t("Mission (optional)")} value={flight.mission} onChange={(mission) => update({ mission })} placeholder={t("weather survey…")} />
+      </div>
+    ),
+    arr: () => (
+      <ChipGroup
+        label={t("Destination")}
+        size="sm"
+        options={Object.values(airports).map((a) => ({ value: a.icao, label: a.code, title: a.name }))}
+        value={flight.arr}
+        onChange={(arr) => update({ arr, calling: callingForPhase(flight.phase, { ...flight, arr }) })}
+      />
+    ),
     route: () =>
       flight.rules === "IFR" ? (
         <TextInput label={t("Route (flight plan)")} value={flight.route} onChange={(r) => update({ route: r.toUpperCase() })} placeholder="DOCKS1 DOCKS FIZEL ELBUR…" />
       ) : null,
   };
 
-  const keys = controlKeys(flight);
+  const keys = ph.controlKeys ? ph.controlKeys(flight) : controlKeys(flight);
   if (keys.length === 0) {
-    return <div className="font-avmono text-[11px] text-av-mute">{t("No clearance on CTAF. Switch COM to {station} if a controller is online.", { station: ph.STATION })}</div>;
+    return (
+      <div className="font-avmono text-[11px] text-av-mute">
+        {ph.controlKeys ? t("Nothing to set in this phase.") : t("No clearance on CTAF. Switch COM to {station} if a controller is online.", { station: ph.STATION })}
+      </div>
+    );
   }
   return <div className="space-y-3">{keys.map((key) => <div key={key}>{renderers[key]()}</div>)}</div>;
 }
@@ -409,17 +448,20 @@ function RadarHints({ alerts, suggestions, setPhase }) {
 }
 
 export default function CallsPanel({ flight, update, setPhase, calls, copiedKey, onCopyCall, saaaData, route, alerts = [], suggestions = [], radarSynced, readback }) {
-  const { t, ph } = useEdition();
-  const activeIndex = PHASES.findIndex((p) => p.id === flight.phase);
+  const { edition, t, ph } = useEdition();
+  // No clearance to ask for without a controller station.
+  const phases = edition.center ? PHASES : PHASES.filter((p) => p.id !== "clearance");
+  const activeIndex = phases.findIndex((p) => p.id === flight.phase);
   const heli = isHeli(flight);
-  const tip = heli ? rotorTip(flight) : null;
+  const rotor = heli ? rotorTip(flight) : null;
+  const tip = ph.tip ? ph.tip(flight) : rotor && { icon: "🚁", text: t(rotor), source: t("SAAA Rotorcraft Syllabus") };
   return (
     <div className="space-y-3">
       <RadarHints alerts={alerts} suggestions={suggestions} setPhase={setPhase} />
 
       <Panel title={t("Flight phase")} bodyClassName="p-2">
         <nav className="flex flex-wrap items-center gap-1" aria-label={t("Flight phase")}>
-          {PHASES.map((p, i) => {
+          {phases.map((p, i) => {
             const active = i === activeIndex;
             const done = i < activeIndex;
             return (
@@ -442,7 +484,7 @@ export default function CallsPanel({ flight, update, setPhase, calls, copiedKey,
       </Panel>
 
       <Panel
-        title={`COM · ${flight.mode === "CENTER" ? ph.STATION : "CTAF 122.800"}`}
+        title={`COM · ${ph.comLabel(flight)}`}
         action={<span className="font-avmono text-[9px] text-av-mute">{t("CLICK OR PRESS 1-9 TO COPY")}</span>}
       >
         <div className="space-y-2">
@@ -456,7 +498,7 @@ export default function CallsPanel({ flight, update, setPhase, calls, copiedKey,
         </div>
         {tip && (
           <div className="mt-2 rounded border border-av-amber/30 bg-av-amber/5 px-2 py-1 text-[11px] text-av-amber">
-            🚁 {t(tip)} <span className="font-avmono text-[9px] text-av-mute">· {t("SAAA Rotorcraft Syllabus")}</span>
+            {tip.icon} {tip.text} <span className="font-avmono text-[9px] text-av-mute">· {tip.source}</span>
           </div>
         )}
       </Panel>

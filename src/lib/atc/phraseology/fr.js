@@ -1,60 +1,36 @@
-import { AIRPORTS } from "../airports";
+import { AIRPORTS } from "../france";
+import { heliPoint } from "../flight";
 import { contextAirport, displayCallsign } from "../phases";
 
-// GTA World France. Same structure as the English calls, worded the French way
-// (auto-information style on CTAF):
-// CTAF     -> [Terrain] Trafic. [Indicatif]. [Position]. [Intention]. [Terrain].
-// Contrôle -> San Andreas Contrôle. [Indicatif]. [Position]. [Demande].
+// GTA World France, from the server's ATC guide. There is no live controller: the pilot
+// announces each step, in the present tense with "nous", in short sentences:
+//   [Immatriculation] pour [LSX | SDA | GBC | TRAFFIC], [ce que l'on fait]. [Nous recontactons.]
+// The airport (IATA code) is called on the ground and around it; TRAFFIC everywhere else:
+// en route, zone B, flight plan changes, helicopters on an off-airfield site.
 // Kept in one place so the wording can follow what instructors on the server expect.
 
-export const STATION = "San Andreas Contrôle";
-export const trafficLabel = (name) => `${name} Trafic`;
+export const STATION = "TRAFFIC";
+export const callingLabel = (airport) => (airport ? airport.code : STATION);
+export const comLabel = () => "ATC";
+// NVFR: VFR de nuit.
+export const FLIGHT_RULES = ["VFR", "NVFR", "IFR"];
+// No traffic pattern calls on GTA World France.
+export const LANDING_TYPES = [];
+export const FINAL_TYPES = [];
 
-export const LANDING_TYPES = [
-  { value: "full", label: "Complet" },
-  { value: "touch", label: "Touch & go" },
-  { value: "stop", label: "Stop & go" },
-];
+export const MAYDAY_SITUATIONS = ["Panne moteur totale", "Panne moteur partielle", "Feu à bord", "Feu moteur", "Dommages structurels"];
+export const PAN_SITUATIONS = ["Train d'atterrissage bloqué", "Passager malade à bord", "Carburant bas", "Moteur qui tourne irrégulièrement", "Collision aviaire"];
+export const HELI_MAYDAY_SITUATIONS = ["Panne moteur", "Panne du rotor de queue", "Feu à bord", "Feu moteur", "Dommages structurels"];
+export const HELI_PAN_SITUATIONS = ["Voyant limaille allumé", "Carburant bas", "Passager malade à bord", "Moteur qui tourne irrégulièrement", "Collision aviaire"];
 
-export const FINAL_TYPES = [
-  { value: "on", label: "En finale" },
-  { value: "turning", label: "Dernier virage" },
-];
+// 1500 -> "1500 pieds", as the guide writes it.
+export const formatAltitude = (ft) => `${Math.round(Number(ft) || 0)} pieds`;
 
-export const MAYDAY_SITUATIONS = [
-  "Panne moteur totale",
-  "Panne moteur partielle",
-  "Feu à bord",
-  "Feu moteur",
-  "Dommages structurels",
-];
-
-export const PAN_SITUATIONS = [
-  "Train d'atterrissage bloqué",
-  "Passager malade à bord",
-  "Carburant bas",
-  "Moteur qui tourne irrégulièrement",
-  "Collision aviaire",
-];
-
-// 1500 -> "1 500 ft" (plain space: the game chat may not like narrow no-break spaces).
-export const formatAltitude = (ft) => `${String(Math.round(Number(ft) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} ft`;
-
-export function formatRunway(id, style = "spoken") {
-  if (!id) return "piste";
-  if (style === "compact") return `piste ${id}`;
-  const match = id.match(/^(\d{1,2})([LRC])?$/);
-  if (!match) return `piste ${id}`;
-  const digits = match[1].padStart(2, "0").split("").join("-");
-  const side = { L: " gauche", R: " droite", C: " centre" }[match[2]] || "";
-  return `piste ${digits}${side}`;
-}
-
-// ["A", "C", "D"] -> "A, C et D"
+// ["B2", "B"] -> "B2 et B"
 export const formatList = (items) =>
   items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`;
 
-// Route tokens come from the taxi graph in English ("crossing Runway 12L/30R").
+// Route tokens come from the taxi graph in English ("crossing Runway 12R/30L").
 export function formatVia(tokens) {
   const parts = [];
   let group = [];
@@ -62,7 +38,7 @@ export function formatVia(tokens) {
     const crossing = token.match(/^crossing Runway (.+)$/);
     if (crossing) {
       if (group.length) parts.push(formatList(group));
-      parts.push(`en traversant la piste ${crossing[1]}`);
+      parts.push(`traversée de la ${crossing[1]}`);
       group = [];
     } else {
       group.push(token);
@@ -72,460 +48,280 @@ export function formatVia(tokens) {
   return parts.join(", ");
 }
 
-const DIRECTIONS = {
-  north: { le: "le nord", du: "du nord", au: "au nord" },
-  northeast: { le: "le nord-est", du: "du nord-est", au: "au nord-est" },
-  east: { le: "l'est", du: "de l'est", au: "à l'est" },
-  southeast: { le: "le sud-est", du: "du sud-est", au: "au sud-est" },
-  south: { le: "le sud", du: "du sud", au: "au sud" },
-  southwest: { le: "le sud-ouest", du: "du sud-ouest", au: "au sud-ouest" },
-  west: { le: "l'ouest", du: "de l'ouest", au: "à l'ouest" },
-  northwest: { le: "le nord-ouest", du: "du nord-ouest", au: "au nord-ouest" },
+// Any runway, as long as the aircraft is on its axis, is the "Main Ramp" for a takeoff.
+const MAIN_RAMP = "Main Ramp";
+const RECONTACT = "Nous recontactons";
+const PURPOSES = { parking: "parking", loading: "chargement", standby: "stand-by" };
+const orPlaceholder = (value, placeholder) => (value || "").trim() || placeholder;
+
+// A helicopter climbs vertically to this height before flying horizontally, and hovers at
+// this height above its landing point: 500 ft, 1000 ft at LSX (zone B).
+const verticalFt = (icao, point) => (icao === "KLSI" && point !== "site" ? 1000 : 500);
+const liftFt = (flight) => {
+  const cap = verticalFt(flight.dep, flight.depPoint);
+  return Math.min(Number(flight.target) || cap, cap);
 };
-const dir = (value) => DIRECTIONS[value] || DIRECTIONS.north;
-
-// Parking spots keep their chart names in the UI; on the radio they get French words and an article.
-const SPOTS = {
-  "Devin Weston Apron": "l'aire de trafic Devin Weston",
-  "GA Parking": "le parking aviation générale",
-  "IMEX Hangar": "le hangar IMEX",
-  "South Terminal": "le terminal sud",
-  "Pegasus Hangar": "le hangar Pegasus",
-  "South Aircraft Maintenance Area": "la zone de maintenance sud",
-  "Dale-Kelly Apron": "l'aire de trafic Dale-Kelly",
-  "Fuel Farm": "le dépôt carburant",
-  Hangar: "le hangar",
-  "Maintenance Area": "la zone de maintenance",
-  Terminal: "le terminal",
-  Helipad: "l'hélisurface",
-};
-
-function spotPhrase(spot) {
-  const name = (spot || "").trim();
-  if (!name) return "l'aire de trafic";
-  if (SPOTS[name]) return SPOTS[name];
-  if (/^P\d+$/i.test(name)) return `le parking ${name.toUpperCase()}`;
-  if (/^H\d+$/i.test(name)) return `le hangar ${name.toUpperCase()}`;
-  return name;
-}
-
-// "le hangar IMEX" -> "au hangar IMEX", "l'aire…" -> "à l'aire…", "Gate 8" -> "à Gate 8".
-function at(phrase) {
-  if (phrase.startsWith("le ")) return `au ${phrase.slice(3)}`;
-  if (phrase.startsWith("les ")) return `aux ${phrase.slice(4)}`;
-  return `à ${phrase}`;
-}
-
-// "le hangar IMEX" -> "du hangar IMEX", "l'hélisurface" -> "de l'hélisurface".
-function from(phrase) {
-  if (phrase.startsWith("le ")) return `du ${phrase.slice(3)}`;
-  if (phrase.startsWith("les ")) return `des ${phrase.slice(4)}`;
-  return `de ${phrase}`;
-}
-
-const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-
-// Like the shared joinSentences, but fragments are written lowercase and capitalized here.
-const join = (parts) =>
-  parts
-    .filter(Boolean)
-    .map((p) => capitalize(/[.!?]$/.test(p) ? p : `${p}.`))
-    .join(" ");
 
 function buildContext(flight) {
   const icao = contextAirport(flight);
-  const airport = AIRPORTS[icao];
   const dep = AIRPORTS[flight.dep];
   const arr = AIRPORTS[flight.arr];
-  const callingName = flight.calling === "SA" ? "San Andreas" : AIRPORTS[flight.calling].traffic;
 
-  const callsign = displayCallsign(flight.callsign);
-  let who = `${flight.medevac ? "MEDEVAC " : ""}${callsign}`;
+  let who = `${flight.medevac ? "MEDEVAC " : ""}${displayCallsign(flight.callsign)}`;
   if (flight.formation) who += `, patrouille de ${flight.formationCount} ${flight.formationType.trim() || "appareils"}`;
 
-  const side = flight.pattern === "right" ? "main droite" : "main gauche";
-  const landing = {
-    full: "atterrissage complet",
-    touch: `touch and go, reste dans le circuit ${side}`,
-    stop: `stop and go, reste dans le circuit ${side}`,
-  }[flight.landing];
-  const spot = spotPhrase(flight.spots[icao]);
+  const arrSite = orPlaceholder(flight.arrSite, "[site]");
+  const heliSite = flight.aircraft === "helicopter" && flight.arrPoint === "site";
+  const dest = flight.planDest.trim() || (heliSite ? arrSite : arr.code);
+  const mission = flight.mission.trim();
+  const target = formatAltitude(flight.target);
 
   return {
-    center: flight.mode === "CENTER",
-    vfr: flight.rules === "VFR",
-    callsign,
     who,
-    open: trafficLabel(callingName),
-    close: callingName,
-    airport,
+    to: flight.calling === "SA" ? STATION : AIRPORTS[flight.calling].code,
     dep,
     arr,
-    rwy: formatRunway(flight.runways[icao], flight.runwayStyle),
-    spot,
-    atSpot: at(spot),
+    rwy: flight.runways[icao] || "[piste]",
+    spot: orPlaceholder(flight.spots[icao], "[position]"),
     via: formatVia(flight.via),
-    hold: flight.hold.trim(),
-    face: dir(flight.face),
-    dir: dir(flight.dir),
-    from: dir(flight.from),
+    // After landing: the taxiway we vacated onto, first leg of the route to the stand.
+    exit: flight.via.find((token) => !token.startsWith("crossing")),
     landmark: flight.landmark.trim(),
     alt: formatAltitude(flight.alt),
     altFt: Number(flight.alt),
-    target: formatAltitude(flight.target),
+    target,
     targetFt: Number(flight.target),
-    side,
-    landing,
-    landingKey: flight.landing,
-    finalVerb: flight.finalVerb === "turning" ? "dernier virage" : "en finale",
-    route: flight.route.trim(),
-    rules: flight.rules,
-    // Helicopter: where we lift off from / land, as said on the radio.
-    depSpot: spotPhrase(flight.spots[flight.dep]),
-    arrSpot: spotPhrase(flight.spots[flight.arr]),
-    depSite: flight.depSite.trim() || "[site]",
-    arrSite: flight.arrSite.trim() || "[site]",
-    depPoint: flight.depPoint,
-    arrPoint: flight.arrPoint,
-    autoSite: flight.autoSite.trim(),
+    dest,
+    // Destination (or area), mission for LSAS flights, flight rules, cruise altitude.
+    plan: `plan de vol ${dest}${mission ? ` pour ${mission}` : ""} en ${flight.rules}, niveau de vol ${target}`,
+    purpose: PURPOSES[flight.purpose] ? flight.purpose : "parking",
+    // Helicopters: where we lift off and land.
+    depWhere:
+      flight.depPoint === "site" ? orPlaceholder(flight.depSite, "[site]") : flight.depPoint === "runway" ? MAIN_RAMP : orPlaceholder(flight.spots[flight.dep], "[position]"),
+    arrWhere: flight.arrPoint === "site" ? arrSite : orPlaceholder(flight.spots[flight.arr], "[position]"),
+    liftAlt: formatAltitude(liftFt(flight)),
+    hoverAlt: formatAltitude(verticalFt(flight.arr, flight.arrPoint)),
   };
 }
 
-const ctaf = (c, ...body) => join([c.open, c.who, ...body, c.close]);
-const center = (c, ...body) => join([STATION, c.who, ...body]);
+// "ABC123 pour LSX, nous rejoignons Main Ramp pour décollage en 30L, translation par B et B6. Nous recontactons."
+function say(who, to, clauses, ...after) {
+  return [`${who} pour ${to}, ${clauses.filter(Boolean).join(", ")}.`, ...after.map((s) => `${s}.`)].join(" ");
+}
+const atc = (c, clauses, ...after) => say(c.who, c.to, clauses, ...after);
+const traffic = (c, clauses, ...after) => say(c.who, STATION, clauses, ...after);
+const translation = (c) => (c.via ? `translation par ${c.via}` : null);
 
-const overhead = (c) => (c.landmark ? `verticale ${c.landmark} à ${c.alt}` : `à ${c.alt}`);
-const altitudeChange = (c) =>
-  c.targetFt === c.altFt ? null : `${c.targetFt > c.altFt ? "monte" : "descend"} vers ${c.target}`;
-const inbound = (c) => `en provenance ${c.from.du}${c.landmark ? `, verticale ${c.landmark},` : ""} à ${c.alt}`;
-const TARGET_HINT = "Choisissez une altitude cible différente de l'altitude actuelle.";
+const startCall = (c, where) => ({ id: "start", label: "Démarrage moteurs", text: atc(c, [`nous démarrons moteurs sur ${where}`]) });
 
-const CTAF_CALLS = {
-  clearance: () => [],
-  ground: (c) => [
-    { id: "pushback", label: "Repoussage", text: ctaf(c, c.atSpot, `repousse face ${c.face.au}`) },
-    {
-      id: "taxi",
-      label: "Roulage vers la piste",
-      text: ctaf(c, c.atSpot, `roule vers la ${c.rwy}${c.via ? ` via ${c.via}` : ""}`),
-      next: "departure",
-    },
-  ],
-  departure: (c) => [
-    {
-      id: "takeoff",
-      label: "Décollage, départ",
-      text: ctaf(c, `s'aligne et décolle ${c.rwy}`, `départ vers ${c.dir.le}`, `montée vers ${c.target}`),
-      next: "enroute",
-    },
-    {
-      id: "takeoff-pattern",
-      label: "Décollage, tour de piste",
-      text: ctaf(c, `s'aligne et décolle ${c.rwy}`, `reste dans le circuit ${c.side}`),
-      next: "pattern",
-    },
-  ],
-  enroute: (c) => [
-    {
-      id: "position",
-      label: "Compte rendu de position",
-      text: ctaf(c, overhead(c), `poursuit vers ${c.dir.le} en direction de ${c.arr.shortName}`),
-    },
-    {
-      id: "position-turn",
-      label: "Position, virage",
-      text: ctaf(c, overhead(c), `vire vers ${c.dir.le} en direction de ${c.arr.shortName}`),
-    },
-    {
-      id: "altitude",
-      label: "Changement d'altitude",
-      text: altitudeChange(c) ? ctaf(c, overhead(c), altitudeChange(c)) : null,
-      hint: TARGET_HINT,
-    },
-  ],
-  arrival: (c) => {
-    const joining = c.targetFt < c.altFt ? `descend vers ${c.target} et rejoint` : "rejoint";
-    return [
-      {
-        id: "pattern-entry",
-        label: "Intégration du circuit",
-        text: ctaf(c, inbound(c), `${joining} la vent arrière ${c.side} ${c.rwy}`),
-        next: "pattern",
-      },
-      {
-        id: "straight-in",
-        label: "Finale directe",
-        text: ctaf(c, inbound(c), `pour une finale directe ${c.rwy}`),
-        next: "pattern",
-      },
-    ];
-  },
-  pattern: (c) => [
-    { id: "downwind", label: "Vent arrière", text: ctaf(c, `vent arrière ${c.side} ${c.rwy}`) },
-    { id: "base", label: "Étape de base", text: ctaf(c, `étape de base ${c.side} ${c.rwy}`) },
-    {
-      id: "final",
-      label: "Finale",
-      text: ctaf(c, `${c.finalVerb} ${c.rwy}`, c.landing),
-      next: c.landingKey === "full" ? "taxiin" : undefined,
-    },
-    {
-      id: "go-around",
-      label: "Remise de gaz",
-      text: ctaf(c, `remise de gaz ${c.rwy}`, `reste dans le circuit ${c.side}`),
-    },
-    {
-      id: "leave-pattern",
-      label: "Sortie du circuit",
-      text: ctaf(c, `quitte le circuit vers ${c.dir.le}`, altitudeChange(c)),
-      next: "enroute",
-    },
-  ],
-  taxiin: (c) => [
-    {
-      id: "vacated",
-      label: "Piste dégagée, roulage au parking",
-      text: ctaf(c, `${c.rwy} dégagée`, `roule vers ${c.spot}${c.via ? ` via ${c.via}` : ""}`),
-    },
-  ],
-};
-
-const CENTER_CALLS = {
-  clearance: (c) =>
-    c.vfr
-      ? [
-          {
-            id: "vfr-clearance",
-            label: "Clairance VFR",
-            text: center(c, `${c.atSpot} à ${c.dep.name}`, `demande clairance VFR vers ${c.arr.name} à ${c.target}`),
-          },
-        ]
-      : [
-          {
-            id: "flight-plan",
-            label: "Plan de vol (MP au contrôleur)",
-            channel: "pm",
-            text: `${c.callsign} | DEP: ${c.dep.icao} | ARR: ${c.arr.icao} | RTE: ${c.route || "DCT"} | ALT: ${formatAltitude(c.targetFt).toUpperCase()}`,
-          },
-          {
-            id: "ifr-clearance",
-            label: "Clairance IFR",
-            text: center(c, `${c.atSpot} à ${c.dep.name}`, `IFR vers ${c.arr.name}`, "prêt à copier"),
-          },
-        ],
-  ground: (c) => [
-    { id: "pushback", label: "Demande de repoussage", text: center(c, `${c.atSpot} à ${c.dep.name}`, "demande repoussage") },
-    {
-      id: "taxi",
-      label: "Prêt à rouler",
-      text: center(c, `${c.atSpot} à ${c.dep.name}`, "prêt à rouler"),
-      next: "departure",
-    },
-  ],
-  departure: (c) => [
-    {
-      id: "ready",
-      label: "Prêt au départ",
-      text: center(c, c.hold ? `au point d'attente ${c.hold}, ${c.rwy}` : `au point d'attente ${c.rwy}`, "prêt au départ"),
-      next: "enroute",
-    },
-  ],
-  enroute: (c) => [
-    { id: "position", label: "Compte rendu de position", text: center(c, overhead(c)) },
-    {
-      id: "altitude",
-      label: c.targetFt > c.altFt ? "Demande de montée" : "Demande de descente",
-      text:
-        c.targetFt === c.altFt
-          ? null
-          : center(c, overhead(c), `demande ${c.targetFt > c.altFt ? "montée" : "descente"} vers ${c.target}`),
-      hint: TARGET_HINT,
-    },
-    { id: "lower", label: "Demande une altitude inférieure", text: center(c, overhead(c), "demande une altitude inférieure") },
-  ],
-  arrival: (c) => [
-    {
-      id: "inbound",
-      label: "Arrivée pour atterrissage",
-      text: center(c, inbound(c), `demande atterrissage à ${c.arr.name}`),
-      next: "pattern",
-    },
-  ],
-  pattern: (c) => [
-    {
-      id: "final",
-      label: "Finale",
-      text: center(c, `${c.finalVerb} ${c.rwy}`, c.vfr ? c.landing : null),
-      next: c.landingKey === "full" ? "taxiin" : undefined,
-    },
-    { id: "go-around", label: "Remise de gaz", text: center(c, `remise de gaz ${c.rwy}`) },
-  ],
-  taxiin: (c) => [
-    {
-      id: "vacated",
-      label: "Piste dégagée",
-      text: center(c, `${c.rwy} dégagée${c.via ? ` par ${c.via}` : ""}`, `demande roulage vers ${c.spot}`),
-    },
-  ],
-};
-
-/* ---------------------------------------------------------------- hélicoptères */
-
-// Syllabus Rotorcraft de la SAAA : translation (roulage en stationnaire) à 10 ft, décollage
-// d'une piste, d'une hélisurface ou d'un parking, poser sur piste ou direct sur l'hélisurface,
-// poser hors aérodrome après reconnaissance de la zone. Le travail sur piste reprend les messages avion.
-const depWhere = (c) => (c.depPoint === "site" ? c.depSite : c.depSpot);
-const depLong = (c) => (c.depPoint === "site" ? c.depSite : `${c.depSpot} à ${c.dep.name}`);
-const arrLong = (c) => (c.arrPoint === "site" ? c.arrSite : c.arrPoint === "spot" ? `${c.arrSpot} à ${c.arr.name}` : c.arr.name);
-// "à Pillbox Hill Medical Center" for a site, "au hangar IMEX à …" for a spot.
-const atDep = (c) => (c.depPoint === "site" ? `à ${c.depSite}` : at(depLong(c)));
-const atArr = (c) => (c.arrPoint === "site" ? `à ${c.arrSite}` : at(c.arrSpot));
-
-// Le briefing de décollage du syllabus, dit à l'équipage (pas sur la fréquence).
-// En deux lignes pour rester sous la limite du chat : intentions, puis urgences.
-function briefingCalls(c) {
-  const where = c.depPoint === "runway" ? `de la ${c.rwy} à ${c.dep.name}` : from(depLong(c));
-  const over = c.landmark ? `, verticale ${c.landmark},` : "";
-  return [
-    {
-      id: "briefing-1",
-      label: "Briefing décollage 1/2 (équipage)",
-      channel: "say",
-      text: join([`nous décollons ${where}`, `après le décollage, nous monterons à ${c.target} et poursuivrons vers ${c.dir.le}${over} en ${c.rules} vers ${arrLong(c)}`]),
-    },
-    {
-      id: "briefing-2",
-      label: "Briefing décollage 2/2 (équipage)",
-      channel: "say",
-      text: join([
-        "en cas d'urgence, nous la traiterons en montée",
-        `en cas de panne moteur, nous effectuerons une autorotation vers ${c.autoSite || "la zone dégagée la plus sûre devant nous"}`,
-      ]),
-    },
-  ];
+function atStand(c, where) {
+  if (c.purpose === "loading") return atc(c, [`nous sommes sur ${where} pour chargement`]);
+  if (c.purpose === "standby") return atc(c, [`nous sommes sur ${where}`, "nous restons en stand-by"]);
+  return atc(c, [`nous sommes sur ${where}`, "nous parkons et nous quittons la fréquence"]);
 }
 
-const HELI_CTAF_CALLS = {
-  clearance: () => [],
-  ground: (c) =>
-    c.depPoint === "runway"
-      ? [
-          {
-            id: "hover-taxi",
-            label: "Translation vers la piste",
-            text: ctaf(c, at(c.depSpot), `en translation vers la ${c.rwy}${c.via ? ` via ${c.via}` : ""}`),
-            next: "departure",
-          },
-        ]
-      : [],
-  departure: (c) => [
-    ...(c.depPoint === "runway"
-      ? CTAF_CALLS.departure(c)
-      : [
-          {
-            id: "lift-off",
-            label: "Décollage, départ",
-            text: ctaf(c, `décolle ${from(depWhere(c))}`, `départ vers ${c.dir.le}`, `montée vers ${c.target}`),
-            next: "enroute",
-          },
-        ]),
-    ...briefingCalls(c),
-  ],
-  enroute: (c) => CTAF_CALLS.enroute(c),
-  arrival: (c) => {
-    if (c.arrPoint === "runway") return CTAF_CALLS.arrival(c);
-    if (c.arrPoint === "site") {
-      return [
-        {
-          id: "assess",
-          label: "Arrivée, reconnaissance de la zone",
-          text: ctaf(c, inbound(c), `en orbite au-dessus de ${c.arrSite} pour reconnaître la zone de poser`),
-          next: "pattern",
-        },
-      ];
-    }
-    return [
-      {
-        id: "inbound-spot",
-        label: "Arrivée, poser direct",
-        text: ctaf(c, inbound(c), `poser direct ${at(c.arrSpot)}`),
-        next: "pattern",
-      },
-    ];
+const LANDMARK_HINT = "Indiquez où vous passez la limite (Chumash, Vinewood Hills…).";
+const TARGET_HINT = "Choisissez une altitude cible différente de l'altitude actuelle.";
+
+const enrouteCalls = (c) => [
+  {
+    id: "zone-b-exit",
+    label: "Sortie de zone B",
+    text: c.landmark ? traffic(c, [`nous quittons la zone B au niveau de ${c.landmark}`, `maintenons ${c.alt}`]) : null,
+    hint: LANDMARK_HINT,
   },
-  pattern: (c) =>
-    c.arrPoint === "runway"
-      ? CTAF_CALLS.pattern(c)
-      : [
-          {
-            id: "landing",
-            label: c.arrPoint === "site" ? "Poser sur la zone" : "Courte finale",
-            text: ctaf(c, c.arrPoint === "site" ? `se pose à ${c.arrSite}` : `courte finale, poser ${at(c.arrSpot)}`),
-            next: "taxiin",
-          },
-          { id: "go-around", label: "Remise de gaz", text: ctaf(c, "remise de gaz", c.arrPoint === "site" ? `reste au-dessus de ${c.arrSite}` : null) },
-        ],
-  taxiin: (c) =>
-    c.arrPoint === "runway"
-      ? [
-          {
-            id: "vacated",
-            label: "Piste dégagée, translation au parking",
-            text: ctaf(c, `${c.rwy} dégagée`, `en translation vers ${c.arrSpot}${c.via ? ` via ${c.via}` : ""}`),
-          },
-        ]
-      : [{ id: "down", label: "Posé", text: ctaf(c, `posé ${atArr(c)}`) }],
+  {
+    id: "zone-b-entry",
+    label: "Entrée en zone B",
+    text: c.landmark ? traffic(c, [`nous entrons en zone B au niveau de ${c.landmark}`, c.plan]) : null,
+    hint: LANDMARK_HINT,
+  },
+  {
+    id: "plan-altitude",
+    label: "Plan de vol modifié : altitude",
+    text:
+      c.targetFt === c.altFt
+        ? null
+        : traffic(c, ["modification de notre plan de vol", `nous ${c.targetFt > c.altFt ? "montons" : "descendons"} à ${c.target}`]),
+    hint: TARGET_HINT,
+  },
+  {
+    id: "plan-destination",
+    label: "Plan de vol modifié : destination",
+    text: traffic(c, ["modification de notre plan de vol", `direction ${c.dest}`, `maintenons ${c.alt}`]),
+  },
+];
+
+const PLANE_CALLS = {
+  ground: (c) => [
+    startCall(c, c.spot),
+    {
+      id: "taxi",
+      label: "Roulage vers la Main Ramp",
+      text: atc(c, [`nous rejoignons ${MAIN_RAMP} pour décollage en ${c.rwy}`, translation(c)], RECONTACT),
+      next: "departure",
+    },
+  ],
+  departure: (c) => [
+    { id: "lineup", label: "Alignement, plan de vol", text: atc(c, [`nous alignons sur ${MAIN_RAMP} pour décollage en ${c.rwy}`, c.plan], "Nous alignons") },
+    { id: "takeoff", label: "Décollage", text: atc(c, [`nous décollons en ${c.rwy}`]), next: "enroute" },
+  ],
+  enroute: enrouteCalls,
+  arrival: (c) => [
+    { id: "approach", label: "Approche", text: atc(c, [`nous sommes en approche pour atterrissage en ${c.rwy}`], RECONTACT), next: "pattern" },
+  ],
+  pattern: (c) => [
+    { id: "final", label: "Piste en vue, atterrissage imminent", text: atc(c, ["piste en vue et alignés", `atterrissage sur ${c.rwy} imminent`]), next: "taxiin" },
+    { id: "go-around", label: "Remise de gaz", text: atc(c, ["nous remettons les gaz"], RECONTACT) },
+  ],
+  taxiin: (c) => [
+    {
+      id: "landed",
+      label: "Atterrissage réussi",
+      text: atc(c, [`atterrissage sur ${c.rwy} réussi`, c.exit && `nous sommes actuellement sur ${c.exit}`], RECONTACT),
+    },
+    {
+      id: "to-stand",
+      label: `Roulage vers ${c.spot}`,
+      text: atc(c, [`nous rejoignons ${c.spot} pour ${PURPOSES[c.purpose]}`, translation(c)], RECONTACT),
+    },
+    { id: "at-stand", label: `Arrivée sur ${c.spot}`, text: atStand(c, c.spot) },
+  ],
 };
 
-const HELI_CENTER_CALLS = {
-  clearance: (c) =>
-    c.vfr
-      ? [{ id: "vfr-clearance", label: "Clairance VFR", text: center(c, atDep(c), `demande clairance VFR vers ${arrLong(c)} à ${c.target}`) }]
-      : CENTER_CALLS.clearance(c),
-  ground: (c) =>
-    c.depPoint === "runway"
-      ? [{ id: "hover-taxi", label: "Demande de translation", text: center(c, atDep(c), `demande translation vers la ${c.rwy}`), next: "departure" }]
-      : [],
-  departure: (c) => [
-    ...(c.depPoint === "runway"
-      ? CENTER_CALLS.departure(c)
-      : [{ id: "ready", label: "Prêt au départ", text: center(c, atDep(c), `prêt au départ vers ${c.dir.le}`), next: "enroute" }]),
-    ...briefingCalls(c),
+// Helicopters take off and land vertically, from a helipad, a stand, a site or the Main Ramp.
+// On a runway (translation to and from it) they follow the airplane calls.
+const HELI_CALLS = {
+  ground: (c, point) => (point === "runway" ? PLANE_CALLS.ground(c) : []),
+  departure: (c, point) => [
+    ...(point === "runway" ? [] : [startCall(c, c.depWhere)]),
+    {
+      id: "prepare",
+      label: "Préparation du décollage vertical",
+      text: atc(c, [`nous préparons décollage vertical depuis ${c.depWhere}`, c.plan], RECONTACT),
+    },
+    {
+      id: "lift-off",
+      label: "Décollage vertical",
+      text: atc(c, [`nous décollons verticalement depuis ${c.depWhere}`, `montée à ${c.liftAlt} avant de passer en vol horizontal`]),
+    },
+    { id: "horizontal", label: "Passage en vol horizontal", text: atc(c, [c.liftAlt, "nous passons en vol horizontal"]), next: "enroute" },
   ],
-  enroute: (c) => CENTER_CALLS.enroute(c),
-  arrival: (c) =>
-    c.arrPoint === "runway"
-      ? CENTER_CALLS.arrival(c)
+  enroute: enrouteCalls,
+  arrival: (c, point) =>
+    point === "runway"
+      ? PLANE_CALLS.arrival(c)
       : [
           {
-            id: "inbound",
-            label: "Arrivée pour poser",
-            text: center(c, inbound(c), `demande à se poser ${c.arrPoint === "site" ? `à ${c.arrSite}` : at(arrLong(c))}`),
+            id: "approach",
+            label: "Approche",
+            text: atc(c, [`nous sommes actuellement en approche pour atterrissage vertical sur ${c.arrWhere}`]),
             next: "pattern",
           },
         ],
-  pattern: (c) =>
-    c.arrPoint === "runway"
-      ? CENTER_CALLS.pattern(c)
+  pattern: (c, point) =>
+    point === "runway"
+      ? PLANE_CALLS.pattern(c)
       : [
-          { id: "final", label: "Courte finale", text: center(c, `courte finale, poser ${atArr(c)}`), next: "taxiin" },
-          { id: "go-around", label: "Remise de gaz", text: center(c, "remise de gaz") },
+          {
+            id: "landing",
+            label: "Alignés au-dessus, atterrissage vertical",
+            text: atc(c, [`nous sommes alignés à ${c.hoverAlt} au-dessus de ${c.arrWhere}`, `nous atterrissons verticalement sur ${c.arrWhere}`]),
+            next: "taxiin",
+          },
+          { id: "go-around", label: "Remise de gaz", text: atc(c, ["nous remettons les gaz"], RECONTACT) },
         ],
-  taxiin: (c) =>
-    c.arrPoint === "runway"
-      ? [{ id: "vacated", label: "Piste dégagée", text: center(c, `${c.rwy} dégagée${c.via ? ` par ${c.via}` : ""}`, `demande translation vers ${c.arrSpot}`) }]
-      : [{ id: "down", label: "Posé", text: center(c, `posé ${atArr(c)}`) }],
+  taxiin: (c, point) =>
+    point === "runway"
+      ? PLANE_CALLS.taxiin(c)
+      : [
+          {
+            id: "landed",
+            label: "Atterrissage réussi",
+            text: atc(c, [`atterrissage vertical sur ${c.arrWhere} réussi`, `nous sommes actuellement sur ${c.arrWhere}`]),
+          },
+          { id: "shutdown", label: "Arrêt moteurs, fin de vol", text: atc(c, [`nous sommes sur ${c.arrWhere}`, "nous coupons moteurs et nous quittons la fréquence"]) },
+        ],
 };
 
 export function buildCalls(flight) {
   const c = buildContext(flight);
-  const heli = flight.aircraft === "helicopter";
-  const table = c.center ? (heli ? HELI_CENTER_CALLS : CENTER_CALLS) : heli ? HELI_CTAF_CALLS : CTAF_CALLS;
-  return table[flight.phase](c).map((call) => ({ channel: "atc", ...call }));
+  const calls = flight.aircraft === "helicopter" ? HELI_CALLS[flight.phase]?.(c, heliPoint(flight)) : PLANE_CALLS[flight.phase]?.(c);
+  return (calls || []).map((call) => ({ channel: "atc", ...call }));
 }
 
-export const HELI_MAYDAY_SITUATIONS = ["Panne moteur", "Panne du rotor de queue", "Feu à bord", "Feu moteur", "Dommages structurels"];
-export const HELI_PAN_SITUATIONS = ["Voyant limaille allumé", "Carburant bas", "Passager malade à bord", "Moteur qui tourne irrégulièrement", "Collision aviaire"];
+/* ------------------------------------------------------------ phase settings */
+
+const PLANE_CONTROLS = {
+  ground: ["calling", "spot", "runway", "taxiroute", "via"],
+  departure: ["calling", "runway", "target", "plan"],
+  enroute: ["landmark", "alt", "target", "arr", "plan"],
+  arrival: ["calling", "runway"],
+  pattern: ["calling", "runway"],
+  taxiin: ["calling", "runway", "spot", "purpose", "taxiroute", "via"],
+};
+
+const onSpot = (pointKey) => [pointKey, "calling", "spot"];
+const HELI_CONTROLS = {
+  ground: { runway: ["depPoint", ...PLANE_CONTROLS.ground], spot: ["depPoint"], site: ["depPoint"] },
+  departure: {
+    runway: ["depPoint", "calling", "target", "plan"],
+    spot: ["depPoint", "calling", "spot", "target", "plan"],
+    site: ["depPoint", "depSite", "target", "plan"],
+  },
+  arrival: { runway: ["arrPoint", ...PLANE_CONTROLS.arrival], spot: onSpot("arrPoint"), site: ["arrPoint", "arrSite"] },
+  pattern: { runway: ["arrPoint", ...PLANE_CONTROLS.pattern], spot: onSpot("arrPoint"), site: ["arrPoint", "arrSite"] },
+  taxiin: { runway: ["arrPoint", ...PLANE_CONTROLS.taxiin], spot: onSpot("arrPoint"), site: ["arrPoint", "arrSite"] },
+};
+
+export function controlKeys(flight) {
+  if (flight.aircraft !== "helicopter" || flight.phase === "enroute") return PLANE_CONTROLS[flight.phase] || [];
+  return HELI_CONTROLS[flight.phase]?.[heliPoint(flight)] || [];
+}
+
+/* ------------------------------------------------------------ reminders */
+
+const GUIDE = "Guide ATC GTA W FR";
+const LAW = "Loi sur la réglementation aérienne";
+
+// The rules of the guide and of the law worth having in front of you at each phase.
+export function tip(flight) {
+  const heli = flight.aircraft === "helicopter";
+  const vertical = heli && heliPoint(flight) !== "runway";
+  switch (flight.phase) {
+    case "ground":
+      return vertical
+        ? null
+        : {
+            icon: "⚠",
+            source: GUIDE,
+            text: "Arrêtez-vous avant la Main Ramp : interdit d'entrer sur la piste sans avoir prévenu la tour. Inutile de rejoindre le seuil exact, il suffit d'être sur l'axe.",
+          };
+    case "departure":
+      return vertical
+        ? { icon: "🚁", source: GUIDE, text: `Décollage vertical jusqu'à ${formatAltitude(liftFt(flight))}, puis passage en vol horizontal, annoncé à chaque étape.` }
+        : { icon: "✈", source: GUIDE, text: "Plan de vol en s'alignant, puis « nous décollons » : plein gaz si ni la tour ni un autre aéronef ne vous interrompt." };
+    case "enroute":
+      return {
+        icon: "🗺",
+        source: LAW,
+        text: "Zone B (Los Santos) : 1000 pieds minimum, aéronefs avec feux uniquement ; entrée (avec plan de vol) et sortie annoncées à TRAFFIC. Zones C, E et G : 500 pieds minimum, la zone E se traverse seulement. Ultraléger : pas de survol des zones jaunes.",
+      };
+    case "arrival":
+    case "pattern":
+      return vertical
+        ? { icon: "🚁", source: GUIDE, text: "Gardez 500 pieds minimum (1000 pieds sur LSX) et placez-vous au-dessus du point de poser avant de descendre verticalement." }
+        : flight.phase === "pattern"
+          ? { icon: "⚠", source: GUIDE, text: "Une fois posé, dégagez la piste le plus vite possible (surtout à LSX)." }
+          : null;
+    case "taxiin":
+      return { icon: "📻", source: GUIDE, text: "Si vous quittez l'aéronef, prévenez la tour que vous quittez la fréquence." };
+    default:
+      return null;
+  }
+}
+
+/* ------------------------------------------------------------ emergencies */
 
 export const emergencyActions = (flight) =>
   flight.aircraft === "helicopter"
@@ -533,33 +329,27 @@ export const emergencyActions = (flight) =>
         { value: "autorotation", label: "Autorotation vers…" },
         { value: "land-site", label: "Poser de précaution sur…" },
         { value: "land-runway", label: "Atterrir sur la piste" },
-        { value: "return-dep", label: `Retour à ${AIRPORTS[flight.dep].shortName}` },
-        ...(flight.mode === "CENTER" ? [{ value: "vectors", label: "Guidage prioritaire" }] : []),
+        { value: "return-dep", label: `Retour à ${AIRPORTS[flight.dep].code}` },
       ]
     : [
         { value: "land-runway", label: "Atterrir sur la piste" },
         { value: "land-site", label: "Atterrir sur…" },
-        { value: "return-dep", label: `Retour à ${AIRPORTS[flight.dep].shortName}` },
-        { value: "join-downwind", label: "Rejoindre la vent arrière" },
-        ...(flight.mode === "CENTER" ? [{ value: "vectors", label: "Guidage prioritaire" }] : []),
+        { value: "return-dep", label: `Retour à ${AIRPORTS[flight.dep].code}` },
+        { value: "direct-arr", label: `Direct ${AIRPORTS[flight.arr].code}` },
       ];
 
 export function buildEmergency(flight, emergency) {
   const c = buildContext(flight);
   const declaration = emergency.kind === "mayday" ? "Mayday, Mayday, Mayday" : "Pan Pan, Pan Pan, Pan Pan";
-  const where = overhead(c);
-
+  const site = emergency.site.trim() || "[lieu]";
   const actions = {
-    "land-runway": `atterrissage d'urgence ${c.rwy}`,
-    "land-site": `${flight.aircraft === "helicopter" ? "poser de précaution" : "atterrissage d'urgence"} sur ${emergency.site.trim() || "[lieu d'atterrissage]"}`,
-    autorotation: `autorotation vers ${emergency.site.trim() || "[lieu d'atterrissage]"}`,
-    "return-dep": `retour vers ${c.dep.name}`,
-    "join-downwind": `rejoint la vent arrière ${c.side} ${c.rwy}`,
-    vectors: `demande un guidage prioritaire vers ${c.arr.name}`,
+    "land-runway": `nous atterrissons en urgence en ${c.rwy}`,
+    "land-site": flight.aircraft === "helicopter" ? `nous nous posons par précaution sur ${site}` : `nous atterrissons en urgence sur ${site}`,
+    autorotation: `nous effectuons une autorotation vers ${site}`,
+    "return-dep": `nous faisons demi-tour vers ${c.dep.code}`,
+    "direct-arr": `nous nous dirigeons directement vers ${c.arr.code}`,
   };
-  const action = actions[emergency.action];
-
-  return c.center
-    ? join([declaration, STATION, c.who, emergency.situation, where, action])
-    : join([declaration, c.open, c.who, emergency.situation, where, action, c.close]);
+  const situation = emergency.situation.charAt(0).toLowerCase() + emergency.situation.slice(1);
+  const where = c.landmark ? `au niveau de ${c.landmark}, ${c.alt}` : c.alt;
+  return `${declaration}. ${atc(c, [situation, where, actions[emergency.action]])}`;
 }

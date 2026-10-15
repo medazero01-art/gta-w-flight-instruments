@@ -1,12 +1,14 @@
 // Airport data the SAAA API doesn't provide: spoken names, parking spots,
 // taxiways and runway headings (read from the official SAAA diagrams).
-// Runway designations and chart links come live from /api/saaa.
+// Runway designations and chart links come live from /api/saaa. `code` is the identifier
+// shown and said for the airport (the ICAO code here, the IATA code on GTA World France).
 // `position` is an approximate reference point in GTA world coordinates (meters,
 // +x east, +y north), `elevationFt` the field elevation from the diagrams.
 
 export const AIRPORTS = {
   KLSI: {
     icao: "KLSI",
+    code: "KLSI",
     name: "Los Santos International Airport",
     shortName: "Los Santos International",
     traffic: "Los Santos",
@@ -37,6 +39,7 @@ export const AIRPORTS = {
   },
   KSSA: {
     icao: "KSSA",
+    code: "KSSA",
     name: "Sandy Shores Airfield",
     shortName: "Sandy Shores",
     traffic: "Sandy Shores",
@@ -56,6 +59,7 @@ export const AIRPORTS = {
   },
   KLGP: {
     icao: "KLGP",
+    code: "KLGP",
     name: "McKenzie Field",
     shortName: "McKenzie",
     traffic: "McKenzie",

@@ -1,10 +1,12 @@
-import { AIRPORTS } from "./airports";
+import { AIRFIELDS } from "./airfields";
 import { PHASES } from "./phases";
 
-const byAirport = (pick) =>
-  Object.fromEntries(Object.values(AIRPORTS).map((airport) => [airport.icao, pick(airport)]));
+const byAirport = (airports, pick) =>
+  Object.fromEntries(Object.values(airports).map((airport) => [airport.icao, pick(airport)]));
 
-export const DEFAULT_FLIGHT = {
+// `airfields` is the edition's entry in AIRFIELDS: runways and stands differ between servers.
+export const defaultFlight = (airfields = AIRFIELDS.en) => ({
+  airfields: airfields.version,
   // Setup
   // "airplane" or "helicopter" (rotorcraft calls, hover taxi, helipads, off-site landings).
   aircraft: "airplane",
@@ -42,8 +44,8 @@ export const DEFAULT_FLIGHT = {
   mode: "CTAF",
   phase: "ground",
   calling: "KLSI",
-  runways: byAirport((a) => a.defaultRunway),
-  spots: byAirport((a) => a.spots[0]),
+  runways: byAirport(airfields.airports, (a) => a.defaultRunway),
+  spots: byAirport(airfields.airports, (a) => a.spots[0]),
   via: [],
   hold: "",
   face: "west",
@@ -57,7 +59,12 @@ export const DEFAULT_FLIGHT = {
   // "on" (On final) or "turning" (Turning final).
   finalVerb: "on",
   route: "",
-};
+  // GTA World France: what we do at the stand after landing ("parking", "loading", "standby"),
+  // a flight plan destination that is not an airport ("Océan pacifique") and the mission.
+  purpose: "parking",
+  planDest: "",
+  mission: "",
+});
 
 export const isHeli = (flight) => flight.aircraft === "helicopter";
 
@@ -93,25 +100,34 @@ export function withPhase(flight, phaseId) {
 export const radarIds = (flight) => [flight.registration, flight.callsign].filter(Boolean);
 
 // A new flight keeps the pilot's identity and preferences, resets everything else.
-export function newFlight(flight) {
+export function newFlight(flight, airfields) {
   const kept = [
     "callsign", "registration", "rules", "dep", "arr", "medevac", "formation", "formationCount", "formationType",
     "runwayStyle", "autoAdvance", "radarOn", "radarSync", "autoRoute", "mapStyle", "mode",
     "aircraft", "heliRole", "depPoint", "arrPoint", "depSite", "arrSite", "autoSite",
   ];
-  const next = { ...DEFAULT_FLIGHT, ...Object.fromEntries(kept.map((key) => [key, flight[key] ?? DEFAULT_FLIGHT[key]])) };
+  const base = defaultFlight(airfields);
+  const next = { ...base, ...Object.fromEntries(kept.map((key) => [key, flight[key] ?? base[key]])) };
   const phase = firstPhase(next);
   return { ...next, phase, calling: callingForPhase(phase, next) };
 }
 
-// Saved state from an older version may miss keys: defaults fill the gaps.
-export function restoreFlight(saved) {
-  if (!saved || typeof saved !== "object") return DEFAULT_FLIGHT;
+// Saved state from an older version may miss keys: defaults fill the gaps. Runways and stands
+// saved for another set of airfields (flights saved before GTA World France got its own) are dropped.
+export function restoreFlight(saved, airfields = AIRFIELDS.en) {
+  const base = defaultFlight(airfields);
+  if (!saved || typeof saved !== "object") return base;
+  const sameAirfields = (saved.airfields ?? AIRFIELDS.en.version) === airfields.version;
+  const runways = { ...base.runways };
+  for (const [icao, rwy] of Object.entries((sameAirfields && saved.runways) || {})) {
+    if (airfields.airports[icao]?.runwayEnds.some((end) => end.id === rwy)) runways[icao] = rwy;
+  }
   return {
-    ...DEFAULT_FLIGHT,
+    ...base,
     ...saved,
-    runways: { ...DEFAULT_FLIGHT.runways, ...saved.runways },
-    spots: { ...DEFAULT_FLIGHT.spots, ...saved.spots },
+    airfields: airfields.version,
+    runways,
+    spots: { ...base.spots, ...(sameAirfields ? saved.spots : {}) },
     via: Array.isArray(saved.via) ? saved.via : [],
     finalVerb: saved.finalVerb === "turning" ? "turning" : "on",
   };

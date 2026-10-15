@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ATC_PREFIX, contextAirport } from "@/lib/atc/phases";
-import { DEFAULT_FLIGHT, heliPoint, isHeli, newFlight, radarIds, restoreFlight, withPhase } from "@/lib/atc/flight";
+import { defaultFlight, heliPoint, isHeli, newFlight, radarIds, restoreFlight, withPhase } from "@/lib/atc/flight";
 import { cardinalAbbr, isOwnAircraft } from "@/lib/atc/radar";
 import { radarPatch, radarSuggestions } from "@/lib/atc/radarSync";
 import { airspaceAlerts } from "@/lib/atc/airspace";
 import { analyzeFeed } from "@/lib/atc/feed";
-import { CHART_GEO, calibrateChart, worldToChart } from "@/lib/atc/geo";
-import { TAXI, nearestNode, taxiRoute } from "@/lib/atc/taxi";
+import { calibrateChart, worldToChart } from "@/lib/atc/geo";
+import { nearestNode, taxiRoute } from "@/lib/atc/taxi";
 import { storageKey } from "@/lib/editions";
 import { EditionProvider, useEdition } from "./EditionContext";
 import { Readout, useCopy } from "./ui";
@@ -54,7 +54,7 @@ export default function FlightDeck({ editionId }) {
 }
 
 function Deck() {
-  const { edition, t, ph } = useEdition();
+  const { edition, t, ph, airfields, airports, taxi, charts } = useEdition();
   const keys = useMemo(
     () => ({
       flight: storageKey(edition, "flight:v1"),
@@ -65,7 +65,7 @@ function Deck() {
     [edition]
   );
 
-  const [flight, setFlight] = useState(DEFAULT_FLIGHT);
+  const [flight, setFlight] = useState(() => defaultFlight(airfields));
   const [chartCal, setChartCal] = useState({});
   const [hydrated, setHydrated] = useState(false);
   const [emergency, setEmergency] = useState(null);
@@ -82,8 +82,9 @@ function Deck() {
 
   // Restore after mount (localStorage doesn't exist during server render).
   useEffect(() => {
-    const restored = restoreFlight(readJson(keys.flight));
-    setFlight(edition.radar ? restored : { ...restored, radarOn: false });
+    const restored = restoreFlight(readJson(keys.flight), airfields);
+    // No radar or controller station on GTA World France.
+    setFlight({ ...restored, radarOn: edition.radar && restored.radarOn, mode: edition.center ? restored.mode : "CTAF" });
     setChartCal(readJson(keys.charts) || {});
     let done = false;
     try {
@@ -93,7 +94,7 @@ function Deck() {
     }
     setPreflight(!done);
     setHydrated(true);
-  }, [keys, edition.radar]);
+  }, [keys, edition.radar, edition.center, airfields]);
 
   const closePreflight = useCallback(() => {
     try {
@@ -108,7 +109,7 @@ function Deck() {
   const startFlight = (draft) => {
     const { spot, runway, arrSpot, arrRunway, ...plan } = draft;
     setFlight((f) => {
-      const next = newFlight({ ...f, ...plan });
+      const next = newFlight({ ...f, ...plan }, airfields);
       return {
         ...next,
         spots: { ...f.spots, [plan.arr]: arrSpot || f.spots[plan.arr], [plan.dep]: spot || f.spots[plan.dep] },
@@ -126,9 +127,9 @@ function Deck() {
   const setPhase = useCallback((phase) => setFlight((f) => withPhase(f, phase)), []);
 
   // ---- Charts: built-in calibration, replaced by the pilot's own radar fixes when taken ----
-  const geoFor = useCallback((icao) => chartCal[icao] || CHART_GEO[icao], [chartCal]);
+  const geoFor = useCallback((icao) => chartCal[icao] || charts[icao], [chartCal, charts]);
   const onCalibrate = (icao, fixes) => {
-    const geo = calibrateChart(CHART_GEO[icao], fixes);
+    const geo = calibrateChart(charts[icao], fixes);
     if (!geo) return;
     const next = { ...chartCal, [icao]: geo };
     setChartCal(next);
@@ -176,20 +177,21 @@ function Deck() {
   const taxiing = !isHeli(flight) || heliPoint(flight) === "runway";
   const routeIcao = !taxiing ? null : outbound ? flight.dep : flight.phase === "taxiin" ? flight.arr : null;
   const route = useMemo(() => {
-    if (!routeIcao || !TAXI[routeIcao]) return null;
+    if (!routeIcao || !taxi[routeIcao]) return null;
     // With a calibrated chart, start from where the radar actually sees us on the ground.
     let startNode;
     if (own && !own.airborne && own.atAirport?.icao === routeIcao && chartCal[routeIcao]) {
-      startNode = nearestNode(TAXI[routeIcao], worldToChart(chartCal[routeIcao], own));
+      startNode = nearestNode(taxi[routeIcao], worldToChart(chartCal[routeIcao], own));
     }
     return taxiRoute({
+      taxi,
       icao: routeIcao,
       spot: flight.spots[routeIcao],
       runway: flight.runways[routeIcao],
       direction: outbound ? "out" : "in",
       startNode,
     });
-  }, [routeIcao, outbound, flight.spots, flight.runways, own, chartCal]);
+  }, [taxi, routeIcao, outbound, flight.spots, flight.runways, own, chartCal]);
 
   useEffect(() => {
     if (!flight.autoRoute || !route) return;
@@ -254,6 +256,7 @@ function Deck() {
           </div>
         </Link>
 
+        {edition.center && (
         <div className="flex items-stretch overflow-hidden rounded border border-av-line" role="group" aria-label={t("COM frequency")}>
           <span className="flex items-center bg-av-panel2 px-2 font-avmono text-[9px] font-bold tracking-widest text-av-mute">COM1</span>
           {modes.map((m) => {
@@ -271,6 +274,7 @@ function Deck() {
             );
           })}
         </div>
+        )}
 
         {edition.radar && (
           <div className="flex items-center gap-1.5">
@@ -287,7 +291,7 @@ function Deck() {
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden font-avmono text-[11px] text-av-dim xl:inline">
             {isHeli(flight) && <span className="mr-1 text-av-magenta">🚁 {flight.heliRole === "civil" ? "HELI" : flight.heliRole.toUpperCase()} ·</span>}
-            <span className="text-av-cyan">{flight.callsign || t("[CALLSIGN]")}</span> · {flight.dep} ▸ {flight.arr} · {flight.rules}
+            <span className="text-av-cyan">{flight.callsign || t("[CALLSIGN]")}</span> · {airports[flight.dep].code} ▸ {airports[flight.arr].code} · {flight.rules}
           </span>
           {[
             { kind: "pan", label: "PAN-PAN", cls: "border-av-amber text-av-amber hover:bg-av-amber/20" },
@@ -309,7 +313,7 @@ function Deck() {
       <main className="relative z-10 flex-1 overflow-y-auto p-3 xl:overflow-hidden">
         <div className="grid grid-cols-1 gap-3 xl:h-full xl:grid-cols-[330px_minmax(0,1fr)_minmax(400px,500px)]">
           <div className="space-y-3 xl:overflow-y-auto xl:pr-1">
-            <FlightSetup key={hydrated ? "restored" : "initial"} flight={flight} update={update} onNewFlight={() => setFlight(newFlight(flight))} />
+            <FlightSetup key={hydrated ? "restored" : "initial"} flight={flight} update={update} onNewFlight={() => setFlight(newFlight(flight, airfields))} />
             {edition.saaa && <Briefing flight={flight} saaa={saaa} onUseRunway={pickRunway} />}
             {edition.radar && <AtcFeed feed={feed} flight={flight} update={update} onUseForReadback={(m) => setIncoming({ ...m })} />}
           </div>

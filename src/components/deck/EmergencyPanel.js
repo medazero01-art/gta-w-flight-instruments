@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AIRPORTS, LANDMARKS } from "@/lib/atc/airports";
+import { LANDMARKS } from "@/lib/atc/airports";
 import { ATC_PREFIX, CHAT_LIMIT } from "@/lib/atc/phases";
 import { isHeli } from "@/lib/atc/flight";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, TextInput, softkeyClass } from "./ui";
 
 export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, onClose }) {
-  const { t, ph } = useEdition();
+  const { t, ph, airports } = useEdition();
   const isMayday = kind === "mayday";
   const heli = isHeli(flight);
   const situations = heli
@@ -20,9 +20,11 @@ export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, 
       : ph.PAN_SITUATIONS;
   const [situation, setSituation] = useState(situations[0]);
   // A helicopter with an engine failure autorotates; a PAN lands as a precaution.
-  const [action, setAction] = useState(
-    heli ? (isMayday ? "autorotation" : "land-site") : isMayday ? "land-runway" : flight.mode === "CENTER" ? "vectors" : "join-downwind"
-  );
+  const actions = ph.emergencyActions(flight);
+  const [action, setAction] = useState(() => {
+    const preferred = heli ? (isMayday ? "autorotation" : "land-site") : isMayday ? "land-runway" : flight.mode === "CENTER" ? "vectors" : "join-downwind";
+    return actions.some((a) => a.value === preferred) ? preferred : actions[0].value;
+  });
   const [site, setSite] = useState("");
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, 
           </button>
 
           <ChipGroup label={t("Situation")} options={situations.map((s) => ({ value: s, label: s }))} value={situation} onChange={setSituation} tone="magenta" />
-          <ChipGroup label={t("Action")} options={ph.emergencyActions(flight)} value={action} onChange={setAction} tone="magenta" />
+          <ChipGroup label={t("Action")} options={actions} value={action} onChange={setAction} tone="magenta" />
           {(action === "land-site" || action === "autorotation") && (
             <TextInput label={t("Landing site")} value={site} onChange={setSite} placeholder={t("Senora Freeway, the beach…")} autoFocus />
           )}
@@ -98,8 +100,8 @@ export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, 
               label={t("Calling")}
               size="sm"
               options={[
-                ...Object.values(AIRPORTS).map((a) => ({ value: a.icao, label: ph.trafficLabel(a.traffic) })),
-                { value: "SA", label: ph.trafficLabel("San Andreas") },
+                ...Object.values(airports).map((a) => ({ value: a.icao, label: ph.callingLabel(a) })),
+                { value: "SA", label: ph.callingLabel(null) },
               ]}
               value={flight.calling}
               onChange={(calling) => update({ calling })}

@@ -1,6 +1,8 @@
-// The two servers the app is built for. They share everything (airports, charts, map,
-// taxi routes) except the language and the live data: radar.gta.world and saaa.gta.world
-// belong to GTA World (English), so the France edition never calls them.
+// The two servers the app is built for. They fly the same island but each has its own
+// airport diagrams and radio procedures (lib/atc/airfields.js, lib/atc/phraseology).
+// radar.gta.world and saaa.gta.world belong to GTA World (English), so the France edition
+// never calls them. `center`: a controller station can be online (San Andreas Center);
+// GTA World France has no live ATC, pilots announce to the airport or to TRAFFIC.
 //
 // Logos: drop the files at the `logo` paths below (public/logos/), any size, square works best.
 // Until then the cards show a placeholder.
@@ -14,6 +16,7 @@ export const EDITIONS = {
     logo: "/logos/gta-world.png",
     radar: true,
     saaa: true,
+    center: true,
   },
   fr: {
     id: "fr",
@@ -23,6 +26,7 @@ export const EDITIONS = {
     logo: "/logos/gta-world-france.png",
     radar: false,
     saaa: false,
+    center: false,
   },
 };
 

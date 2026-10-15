@@ -1,15 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { AIRPORTS } from "@/lib/atc/airports";
 import { callingForPhase, isHeli } from "@/lib/atc/flight";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, Panel, TextInput, Toggle, softkeyClass } from "./ui";
 
-const airportOptions = Object.values(AIRPORTS).map((a) => ({ value: a.icao, label: a.icao, title: a.name }));
-
 export default function FlightSetup({ flight, update, onNewFlight }) {
-  const { edition, t } = useEdition();
+  const { edition, t, ph, airports } = useEdition();
+  const airportOptions = Object.values(airports).map((a) => ({ value: a.icao, label: a.code, title: a.name }));
   const [open, setOpen] = useState(!flight.callsign);
   const heli = isHeli(flight);
 
@@ -37,8 +35,8 @@ export default function FlightSetup({ flight, update, onNewFlight }) {
           <div className="text-lg font-bold text-av-cyan leading-tight">{flight.callsign || t("NO CALLSIGN")}</div>
           <div className="text-[12px] text-av-text">
             {heli && <span className="mr-1">🚁</span>}
-            {heli && flight.depPoint === "site" ? flight.depSite || t("site") : flight.dep} <span className="text-av-magenta">━━▶</span>{" "}
-            {heli && flight.arrPoint === "site" ? flight.arrSite || t("site") : flight.arr}
+            {heli && flight.depPoint === "site" ? flight.depSite || t("site") : airports[flight.dep].code} <span className="text-av-magenta">━━▶</span>{" "}
+            {heli && flight.arrPoint === "site" ? flight.arrSite || t("site") : airports[flight.arr].code}
             <span className="ml-2 text-av-dim">{flight.rules}</span>
             {flight.medevac && <span className="ml-2 text-av-amber">MEDEVAC</span>}
             {heli && flight.heliRole === "sd" && <span className="ml-2 text-av-amber">SD</span>}
@@ -88,10 +86,7 @@ export default function FlightSetup({ flight, update, onNewFlight }) {
           )}
           <ChipGroup
             label={t("Flight rules")}
-            options={[
-              { value: "VFR", label: "VFR" },
-              { value: "IFR", label: "IFR" },
-            ]}
+            options={ph.FLIGHT_RULES.map((r) => ({ value: r, label: r }))}
             value={flight.rules}
             onChange={(rules) => update({ rules })}
           />
@@ -117,6 +112,7 @@ export default function FlightSetup({ flight, update, onNewFlight }) {
             </div>
           )}
 
+          {ph.RUNWAY_STYLES && (
           <ChipGroup
             label={t("Runway format")}
             size="sm"
@@ -127,6 +123,7 @@ export default function FlightSetup({ flight, update, onNewFlight }) {
             value={flight.runwayStyle}
             onChange={(runwayStyle) => update({ runwayStyle })}
           />
+          )}
           <ChipGroup
             label={t("After copying a call")}
             size="sm"

@@ -2,7 +2,8 @@
 // drop the addressing and advisory parts, then tag the callsign at the end.
 
 // English and French (GTA World France) station names and courtesy phrases.
-const ADDRESSING = /^(san andreas|sa|los santos|ls|lsia|sandy shores|sandy|mckenzie|paleto)?\s*(center|tower|ground|traffic|contr[ôo]le|tour|sol|trafic)$/i;
+const ADDRESSING =
+  /^((san andreas|sa|los santos|ls|lsia|sandy shores|sandy|mckenzie|paleto)?\s*(center|tower|ground|traffic|contr[ôo]le|tour|sol|trafic)|lsx|sda|gbc)$/i;
 const ADVISORY =
   /^(winds?\b|altimeter\b|(mayday|pan-pan|pan pan) (received|re[çc]u)$|good day|roger|thank(s| you)|vent\b|calage\b|qnh\b|bonne (journ[ée]e|soir[ée]e)|au revoir|re[çc]u$|merci)/i;
 
