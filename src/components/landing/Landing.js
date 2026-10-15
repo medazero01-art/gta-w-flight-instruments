@@ -73,8 +73,8 @@ function EditionCard({ edition, text, open }) {
   );
 }
 
-function Demo({ c }) {
-  const [edition, setEdition] = useState("en");
+function Demo({ c, initialEdition }) {
+  const [edition, setEdition] = useState(initialEdition);
   const [index, setIndex] = useState(1);
   const [copied, setCopied] = useState(false);
   const calls = DEMO_CALLS[edition];
@@ -145,20 +145,28 @@ const SectionHead = ({ eyebrow, title, text }) => (
   </div>
 );
 
-export default function Landing() {
-  const [lang, setLang] = useState("en");
-  const c = COPY[lang];
+// The device/browser language: the first preferred language, French or not.
+const systemLang = () => ((navigator.languages?.[0] || navigator.language || "").toLowerCase().startsWith("fr") ? "fr" : "en");
 
-  // English on the server render; then the pilot's earlier choice, else the browser language.
+export default function Landing({ initialLang = "en" }) {
+  // `initialLang` comes from the Accept-Language header (server render); the browser confirms it.
+  const [system, setSystem] = useState(initialLang);
+  const [lang, setLang] = useState(initialLang);
+  const c = COPY[lang];
+  // French systems see GTA World France first.
+  const editions = Object.values(EDITIONS).sort((a, b) => (b.lang === system) - (a.lang === system));
+
+  // The system language decides on every visit; the EN/FR toggle only lasts for this tab.
   useEffect(() => {
-    let saved = null;
+    const detected = systemLang();
+    setSystem(detected);
+    let chosen = null;
     try {
-      saved = localStorage.getItem(LANG_KEY);
+      chosen = sessionStorage.getItem(LANG_KEY);
     } catch {
-      // Storage blocked: fall back to the browser language.
+      // Storage blocked: the system language is enough.
     }
-    const next = saved || (navigator.language?.toLowerCase().startsWith("fr") ? "fr" : "en");
-    setLang(next === "fr" ? "fr" : "en");
+    setLang(chosen === "fr" || chosen === "en" ? chosen : detected);
   }, []);
 
   useEffect(() => {
@@ -168,9 +176,9 @@ export default function Landing() {
   const chooseLang = (next) => {
     setLang(next);
     try {
-      localStorage.setItem(LANG_KEY, next);
+      sessionStorage.setItem(LANG_KEY, next);
     } catch {
-      // The choice lasts this visit only.
+      // The choice lasts until the next render only.
     }
   };
 
@@ -209,7 +217,7 @@ export default function Landing() {
           <div className="choose">
             <div className="label">{c.choose}</div>
             <div className="editions">
-              {Object.values(EDITIONS).map((e) => (
+              {editions.map((e) => (
                 <EditionCard key={e.id} edition={e} text={c.editions[e.id]} open={c.open} />
               ))}
             </div>
@@ -221,7 +229,7 @@ export default function Landing() {
       <section className="block">
         <div className="wrap demo">
           <SectionHead eyebrow={c.demo.eyebrow} title={c.demo.title} text={c.demo.text} />
-          <Demo c={c.demo} />
+          <Demo key={system} c={c.demo} initialEdition={system} />
         </div>
       </section>
 
