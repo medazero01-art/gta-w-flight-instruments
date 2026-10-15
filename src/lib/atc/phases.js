@@ -3,15 +3,16 @@
 export const CHAT_LIMIT = 300;
 export const ATC_PREFIX = "/atc ";
 
-// Labels are English keys, translated by the UI (see lib/i18n.js).
+// Labels are English keys, translated by the UI (see lib/i18n.js). `heliLabel` replaces the
+// label for helicopters, who may land straight on a helipad or a site instead of flying a pattern.
 export const PHASES = [
   { id: "clearance", label: "Clearance", airport: "dep" },
   { id: "ground", label: "Ground", airport: "dep" },
   { id: "departure", label: "Departure", airport: "dep" },
   { id: "enroute", label: "En route", airport: null },
   { id: "arrival", label: "Arrival", airport: "arr" },
-  { id: "pattern", label: "Pattern", airport: "arr" },
-  { id: "taxiin", label: "Taxi in", airport: "arr" },
+  { id: "pattern", label: "Pattern", heliLabel: "Landing", airport: "arr" },
+  { id: "taxiin", label: "Taxi in", heliLabel: "After landing", airport: "arr" },
 ];
 
 // The airport the current call is about: the one we're calling on CTAF, else the phase's airport.

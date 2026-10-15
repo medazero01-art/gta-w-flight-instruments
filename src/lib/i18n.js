@@ -155,6 +155,47 @@ const FR = {
   "Resume last session as it was · Esc": "Reprendre la dernière session telle quelle · Échap",
   "Everything stays editable afterwards.": "Tout reste modifiable ensuite.",
   "Start flight ▸": "Commencer le vol ▸",
+
+  // Helicopters
+  Landing: "Atterrissage",
+  "After landing": "Après le poser",
+  "Aircraft type": "Type d'appareil",
+  Airplane: "Avion",
+  Helicopter: "Hélicoptère",
+  Mission: "Mission",
+  Civil: "Civil",
+  "Parking / helipad": "Parking / hélisurface",
+  "Parking / helipad at {airport}": "Parking / hélisurface à {airport}",
+  "Runway (hover taxi)": "Piste (translation)",
+  Runway: "Piste",
+  "Off-airfield site": "Site hors aérodrome",
+  Site: "Site",
+  site: "site",
+  "Pillbox Hill Medical Center, the scene…": "Pillbox Hill Medical Center, la scène…",
+  "Nearest airport (departure)": "Aérodrome le plus proche (départ)",
+  "Nearest airport (arrival)": "Aérodrome le plus proche (arrivée)",
+  "Lift off from": "Décollage depuis",
+  "Land on": "Poser sur",
+  "Departure site": "Site de départ",
+  "Autorotation site (briefing)": "Zone d'autorotation (briefing)",
+  "Runway 25 ahead, Joshua Road…": "Piste 25 devant, Joshua Road…",
+  "Off-airfield site: no airport diagram. Assess the landing zone from a few hundred feet above before landing.":
+    "Site hors aérodrome : pas de carte d'aéroport. Reconnaissez la zone de poser à quelques centaines de pieds avant de vous poser.",
+  CREW: "ÉQUIPAGE",
+  "SAAA Rotorcraft Syllabus": "Syllabus Rotorcraft SAAA",
+  "Hover taxi: 10ft above the ground, 30kt max.": "Translation : 10 ft au-dessus du sol, 30 kt maximum.",
+  "Normal takeoff: gain speed (translational lift around 60kt), then climb. Obstacles around: maximum performance takeoff from a hover.":
+    "Décollage normal : prenez de la vitesse (portance de translation vers 60 kt), puis montez. Obstacles autour : décollage performances maximales depuis le stationnaire.",
+  "Climb at 80kt or more · descend at 65kt · turns in cruise at 120kt or more.":
+    "Montée à 80 kt minimum · descente à 65 kt · virages en croisière à 120 kt minimum.",
+  "Off-airfield: orbit a few hundred feet above the site to check obstacles, people and loose objects before landing.":
+    "Hors aérodrome : orbitez quelques centaines de pieds au-dessus du site pour vérifier obstacles, personnes et objets volants avant de vous poser.",
+  "Runway: come down to 10ft at 30kt or less, then exit at the next taxiway.":
+    "Piste : descendez à 10 ft à 30 kt ou moins, puis dégagez au prochain taxiway.",
+  "Helipad or spot: aim for the center, let the helicopter settle the last few feet.":
+    "Hélisurface ou parking : visez le centre et laissez l'hélicoptère se poser seul les derniers pieds.",
+  "Autorotation: pick a field, strip or road, hold 80kt down to it, then flare to slow the descent and touch down.":
+    "Autorotation : choisissez un champ, une piste ou une route, tenez 80 kt jusqu'à la zone, puis arrondissez pour freiner la descente et vous poser.",
 };
 
 const DICTIONARIES = { fr: FR };

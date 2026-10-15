@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ATC_PREFIX, contextAirport } from "@/lib/atc/phases";
-import { DEFAULT_FLIGHT, newFlight, radarIds, restoreFlight, withPhase } from "@/lib/atc/flight";
+import { DEFAULT_FLIGHT, heliPoint, isHeli, newFlight, radarIds, restoreFlight, withPhase } from "@/lib/atc/flight";
 import { cardinalAbbr, isOwnAircraft } from "@/lib/atc/radar";
 import { radarPatch, radarSuggestions } from "@/lib/atc/radarSync";
 import { airspaceAlerts } from "@/lib/atc/airspace";
@@ -172,7 +172,9 @@ function Deck() {
 
   // ---- Taxi route from the airport diagram ----
   const outbound = OUTBOUND_PHASES.includes(flight.phase);
-  const routeIcao = outbound ? flight.dep : flight.phase === "taxiin" ? flight.arr : null;
+  // A helicopter only taxis (hover taxi) when it uses a runway; from a spot or a site it lifts off right there.
+  const taxiing = !isHeli(flight) || heliPoint(flight) === "runway";
+  const routeIcao = !taxiing ? null : outbound ? flight.dep : flight.phase === "taxiin" ? flight.arr : null;
   const route = useMemo(() => {
     if (!routeIcao || !TAXI[routeIcao]) return null;
     // With a calibrated chart, start from where the radar actually sees us on the ground.
@@ -284,6 +286,7 @@ function Deck() {
 
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden font-avmono text-[11px] text-av-dim xl:inline">
+            {isHeli(flight) && <span className="mr-1 text-av-magenta">🚁 {flight.heliRole === "civil" ? "HELI" : flight.heliRole.toUpperCase()} ·</span>}
             <span className="text-av-cyan">{flight.callsign || t("[CALLSIGN]")}</span> · {flight.dep} ▸ {flight.arr} · {flight.rules}
           </span>
           {[

@@ -6,6 +6,18 @@ const byAirport = (pick) =>
 
 export const DEFAULT_FLIGHT = {
   // Setup
+  // "airplane" or "helicopter" (rotorcraft calls, hover taxi, helipads, off-site landings).
+  aircraft: "airplane",
+  // Helicopter mission: "civil", "medevac" (MEDEVAC callsign prefix) or "sd".
+  heliRole: "civil",
+  // Helicopter departure / arrival point: "spot" (parking or helipad, lift-off/landing right there),
+  // "runway" (hover taxi to/from the runway) or "site" (off-airfield: hospital, scene… named below).
+  depPoint: "spot",
+  arrPoint: "spot",
+  depSite: "",
+  arrSite: "",
+  // Where the takeoff briefing says we autorotate to after an engine failure.
+  autoSite: "",
   callsign: "",
   // Tail number shown on radar.gta.world when the radio callsign differs (e.g. "IMEX Air 434" flies N434IA).
   registration: "",
@@ -47,12 +59,31 @@ export const DEFAULT_FLIGHT = {
   route: "",
 };
 
+export const isHeli = (flight) => flight.aircraft === "helicopter";
+
+// Where a helicopter is for this phase: "spot", "runway" or "site". Airplanes always use runways.
+export function heliPoint(flight, phaseId = flight.phase) {
+  if (!isHeli(flight)) return "runway";
+  const side = PHASES.find((p) => p.id === phaseId)?.airport;
+  if (side === "dep") return flight.depPoint;
+  if (side === "arr") return flight.arrPoint;
+  return null;
+}
+
 // Who we talk to on CTAF follows the phase: departure airport, then San Andreas, then arrival.
+// A helicopter at an off-airfield site talks to San Andreas Traffic.
 export function callingForPhase(phaseId, flight) {
   const phase = PHASES.find((p) => p.id === phaseId);
+  if (heliPoint(flight, phaseId) === "site") return "SA";
   if (phase?.airport === "dep") return flight.dep;
   if (phase?.airport === "arr") return flight.arr;
   return "SA";
+}
+
+// First phase of a new flight: a helicopter lifting off from its spot or a site has no taxi call.
+export function firstPhase(flight) {
+  if (flight.mode === "CENTER") return "clearance";
+  return isHeli(flight) && flight.depPoint !== "runway" ? "departure" : "ground";
 }
 
 export function withPhase(flight, phaseId) {
@@ -66,14 +97,11 @@ export function newFlight(flight) {
   const kept = [
     "callsign", "registration", "rules", "dep", "arr", "medevac", "formation", "formationCount", "formationType",
     "runwayStyle", "autoAdvance", "radarOn", "radarSync", "autoRoute", "mapStyle", "mode",
+    "aircraft", "heliRole", "depPoint", "arrPoint", "depSite", "arrSite", "autoSite",
   ];
-  const { mode, dep } = flight;
-  return {
-    ...DEFAULT_FLIGHT,
-    ...Object.fromEntries(kept.map((key) => [key, flight[key]])),
-    phase: mode === "CENTER" ? "clearance" : "ground",
-    calling: dep,
-  };
+  const next = { ...DEFAULT_FLIGHT, ...Object.fromEntries(kept.map((key) => [key, flight[key] ?? DEFAULT_FLIGHT[key]])) };
+  const phase = firstPhase(next);
+  return { ...next, phase, calling: callingForPhase(phase, next) };
 }
 
 // Saved state from an older version may miss keys: defaults fill the gaps.

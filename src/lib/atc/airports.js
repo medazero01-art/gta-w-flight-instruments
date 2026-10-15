@@ -51,7 +51,7 @@ export const AIRPORTS = {
       { id: "22", heading: 224.9 },
       { id: "04", heading: 44.7 },
     ],
-    spots: ["GA Parking", "Hangar", "Maintenance Area", "Terminal"],
+    spots: ["GA Parking", "Hangar", "Maintenance Area", "Terminal", "Helipad"],
     taxiways: ["A", "A1"],
   },
   KLGP: {

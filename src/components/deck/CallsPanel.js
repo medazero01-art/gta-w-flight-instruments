@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AIRPORTS, ALTITUDES, DIRECTIONS, LANDMARKS } from "@/lib/atc/airports";
 import { closedRunwayEnds, recommendedRunway, weatherFor } from "@/lib/atc/briefing";
 import { ATC_PREFIX, CHAT_LIMIT, PHASES, contextAirport } from "@/lib/atc/phases";
+import { callingForPhase, heliPoint, isHeli } from "@/lib/atc/flight";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, FieldLabel, Panel, TextInput, softkeyClass } from "./ui";
 
@@ -28,6 +29,69 @@ const CONTROLS = {
     taxiin: ["runway", "spot", "taxiroute", "via"],
   },
 };
+
+// Helicopters: settings depend on where we lift off / land ("spot", "runway" or "site").
+// On runways they fly the airplane procedures, so those reuse the airplane lists.
+const withFirst = (key, list) => [key, ...list];
+const HELI_CONTROLS = {
+  CTAF: {
+    clearance: () => [],
+    ground: { runway: ["depPoint", "calling", "spot", "runway", "taxiroute", "via"], spot: ["depPoint", "calling", "spot"], site: ["depPoint", "depSite"] },
+    departure: {
+      runway: ["depPoint", "calling", "runway", "dir", "target", "pattern", "autoSite"],
+      spot: ["depPoint", "calling", "spot", "dir", "target", "autoSite"],
+      site: ["depPoint", "depSite", "dir", "target", "autoSite"],
+    },
+    arrival: {
+      runway: withFirst("arrPoint", CONTROLS.CTAF.arrival),
+      spot: ["arrPoint", "calling", "from", "landmark", "alt", "spot"],
+      site: ["arrPoint", "arrSite", "from", "landmark", "alt"],
+    },
+    pattern: { runway: withFirst("arrPoint", CONTROLS.CTAF.pattern), spot: ["arrPoint", "calling", "spot"], site: ["arrPoint", "arrSite"] },
+    taxiin: { runway: withFirst("arrPoint", CONTROLS.CTAF.taxiin), spot: ["arrPoint", "calling", "spot"], site: ["arrPoint", "arrSite"] },
+  },
+  CENTER: {
+    clearance: { runway: ["depPoint", "spot", "target", "route"], spot: ["depPoint", "spot", "target", "route"], site: ["depPoint", "depSite", "target"] },
+    ground: { runway: ["depPoint", "spot", "runway", "taxiroute"], spot: ["depPoint"], site: ["depPoint"] },
+    departure: { runway: ["depPoint", "runway", "hold", "autoSite"], spot: ["depPoint", "spot", "dir", "autoSite"], site: ["depPoint", "depSite", "dir", "autoSite"] },
+    arrival: {
+      runway: withFirst("arrPoint", CONTROLS.CENTER.arrival),
+      spot: ["arrPoint", "from", "landmark", "alt", "spot"],
+      site: ["arrPoint", "arrSite", "from", "landmark", "alt"],
+    },
+    pattern: { runway: withFirst("arrPoint", CONTROLS.CENTER.pattern), spot: ["arrPoint", "spot"], site: ["arrPoint", "arrSite"] },
+    taxiin: { runway: withFirst("arrPoint", CONTROLS.CENTER.taxiin), spot: ["arrPoint", "spot"], site: ["arrPoint", "arrSite"] },
+  },
+};
+
+function controlKeys(flight) {
+  if (!isHeli(flight)) return CONTROLS[flight.mode][flight.phase];
+  if (flight.phase === "enroute") return CONTROLS[flight.mode].enroute;
+  const table = HELI_CONTROLS[flight.mode][flight.phase];
+  return typeof table === "function" ? table() : table[heliPoint(flight)] || [];
+}
+
+// SAAA Rotorcraft Syllabus reminders for the current phase (English keys, translated by t()).
+function rotorTip(flight) {
+  const point = heliPoint(flight);
+  switch (flight.phase) {
+    case "ground":
+      return point === "runway" ? "Hover taxi: 10ft above the ground, 30kt max." : null;
+    case "departure":
+      return "Normal takeoff: gain speed (translational lift around 60kt), then climb. Obstacles around: maximum performance takeoff from a hover.";
+    case "enroute":
+      return "Climb at 80kt or more · descend at 65kt · turns in cruise at 120kt or more.";
+    case "arrival":
+    case "pattern":
+      if (point === "site") return "Off-airfield: orbit a few hundred feet above the site to check obstacles, people and loose objects before landing.";
+      if (point === "runway") return "Runway: come down to 10ft at 30kt or less, then exit at the next taxiway.";
+      return "Helipad or spot: aim for the center, let the helicopter settle the last few feet.";
+    case "taxiin":
+      return point === "runway" ? "Hover taxi: 10ft above the ground, 30kt max." : null;
+    default:
+      return null;
+  }
+}
 
 const inputClass =
   "rounded border border-av-line bg-black/50 px-2 py-1.5 font-avmono text-xs text-av-cyan placeholder-av-mute focus:outline-none focus:border-av-cyan";
@@ -122,12 +186,12 @@ function ViaControl({ airport, value, onChange }) {
   );
 }
 
-function SpotControl({ airport, value, onChange }) {
+function SpotControl({ airport, value, onChange, heli }) {
   const { t } = useEdition();
   return (
     <div>
       <ChipGroup
-        label={t("Position at {airport}", { airport: airport.shortName })}
+        label={heli ? t("Parking / helipad at {airport}", { airport: airport.shortName }) : t("Position at {airport}", { airport: airport.shortName })}
         size="sm"
         options={airport.spots.map((s) => ({ value: s, label: s }))}
         value={value}
@@ -183,6 +247,17 @@ function Controls({ flight, update, saaaData, route }) {
   const closed = closedRunwayEnds(saaaData?.notams, airport);
   const best = recommendedRunway(airport, weatherFor(airport, saaaData?.weather), closed);
   const directions = DIRECTIONS.map((d) => ({ ...d, label: t(d.label) }));
+  const heli = isHeli(flight);
+  // Moving a lift-off/landing point to or from a site changes who we call on CTAF.
+  const setPoint = (key, value) => {
+    const next = { ...flight, [key]: value };
+    update({ [key]: value, calling: callingForPhase(flight.phase, next) });
+  };
+  const points = [
+    { value: "spot", label: t("Parking / helipad") },
+    { value: "runway", label: t("Runway") },
+    { value: "site", label: t("Off-airfield site") },
+  ];
 
   const renderers = {
     calling: () => (
@@ -210,7 +285,14 @@ function Controls({ flight, update, saaaData, route }) {
         onChange={(rwy) => update({ runways: { ...flight.runways, [icao]: rwy } })}
       />
     ),
-    spot: () => <SpotControl airport={airport} value={flight.spots[icao] || ""} onChange={(spot) => update({ spots: { ...flight.spots, [icao]: spot } })} />,
+    spot: () => <SpotControl heli={heli} airport={airport} value={flight.spots[icao] || ""} onChange={(spot) => update({ spots: { ...flight.spots, [icao]: spot } })} />,
+    depPoint: () => <ChipGroup label={t("Lift off from")} tone="magenta" size="sm" options={points} value={flight.depPoint} onChange={(v) => setPoint("depPoint", v)} />,
+    arrPoint: () => <ChipGroup label={t("Land on")} tone="magenta" size="sm" options={points} value={flight.arrPoint} onChange={(v) => setPoint("arrPoint", v)} />,
+    depSite: () => <TextInput label={t("Departure site")} value={flight.depSite} onChange={(depSite) => update({ depSite })} placeholder={t("Pillbox Hill Medical Center, the scene…")} />,
+    arrSite: () => <TextInput label={t("Landing site")} value={flight.arrSite} onChange={(arrSite) => update({ arrSite })} placeholder={t("Pillbox Hill Medical Center, the scene…")} />,
+    autoSite: () => (
+      <TextInput label={t("Autorotation site (briefing)")} value={flight.autoSite} onChange={(autoSite) => update({ autoSite })} placeholder={t("Runway 25 ahead, Joshua Road…")} />
+    ),
     taxiroute: () => <RouteControl flight={flight} update={update} route={route} />,
     via: () => <ViaControl airport={airport} value={flight.via} onChange={(via) => update({ via })} />,
     hold: () => <TextInput label={t("Holding short of")} value={flight.hold} onChange={(hold) => update({ hold })} placeholder={t("C1 (optional)")} />,
@@ -239,7 +321,7 @@ function Controls({ flight, update, saaaData, route }) {
       ) : null,
   };
 
-  const keys = CONTROLS[flight.mode][flight.phase];
+  const keys = controlKeys(flight);
   if (keys.length === 0) {
     return <div className="font-avmono text-[11px] text-av-mute">{t("No clearance on CTAF. Switch COM to {station} if a controller is online.", { station: ph.STATION })}</div>;
   }
@@ -248,6 +330,7 @@ function Controls({ flight, update, saaaData, route }) {
 
 function CallCard({ call, index, copied, onCopy }) {
   const { t } = useEdition();
+  // "atc" calls get the /atc prefix; "pm" goes to the controller, "say" is spoken to the crew.
   const full = call.text ? (call.channel === "atc" ? ATC_PREFIX : "") + call.text : "";
   const length = full.length;
   const tooLong = length > CHAT_LIMIT;
@@ -273,6 +356,7 @@ function CallCard({ call, index, copied, onCopy }) {
           {index < 9 && <kbd className="rounded border border-av-line bg-av-panel2 px-1.5 text-av-cyan">{index + 1}</kbd>}
           <span className="font-bold text-av-dim">{call.label}</span>
           {call.channel === "pm" && <span className="rounded bg-av-amber/20 px-1 text-av-amber">{t("PM")}</span>}
+          {call.channel === "say" && <span className="rounded bg-av-green/15 px-1 text-av-green">{t("CREW")}</span>}
         </div>
         <div className="flex items-center gap-2 font-avmono text-[10px]">
           <span className={tooLong ? "font-bold text-av-red" : "text-av-mute"}>
@@ -327,6 +411,8 @@ function RadarHints({ alerts, suggestions, setPhase }) {
 export default function CallsPanel({ flight, update, setPhase, calls, copiedKey, onCopyCall, saaaData, route, alerts = [], suggestions = [], radarSynced, readback }) {
   const { t, ph } = useEdition();
   const activeIndex = PHASES.findIndex((p) => p.id === flight.phase);
+  const heli = isHeli(flight);
+  const tip = heli ? rotorTip(flight) : null;
   return (
     <div className="space-y-3">
       <RadarHints alerts={alerts} suggestions={suggestions} setPhase={setPhase} />
@@ -347,7 +433,7 @@ export default function CallsPanel({ flight, update, setPhase, calls, copiedKey,
                   }`}
                 >
                   {done && "✓ "}
-                  {t(p.label)}
+                  {t(heli && p.heliLabel ? p.heliLabel : p.label)}
                 </button>
               </div>
             );
@@ -368,6 +454,11 @@ export default function CallsPanel({ flight, update, setPhase, calls, copiedKey,
         <div className="mt-2 font-avmono text-[9px] text-av-mute">
           ALT {ph.formatAltitude(flight.alt)} · {t("TGT")} {ph.formatAltitude(flight.target)}
         </div>
+        {tip && (
+          <div className="mt-2 rounded border border-av-amber/30 bg-av-amber/5 px-2 py-1 text-[11px] text-av-amber">
+            🚁 {t(tip)} <span className="font-avmono text-[9px] text-av-mute">· {t("SAAA Rotorcraft Syllabus")}</span>
+          </div>
+        )}
       </Panel>
 
       {readback}

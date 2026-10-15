@@ -3,15 +3,26 @@
 import { useEffect, useState } from "react";
 import { AIRPORTS, LANDMARKS } from "@/lib/atc/airports";
 import { ATC_PREFIX, CHAT_LIMIT } from "@/lib/atc/phases";
+import { isHeli } from "@/lib/atc/flight";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, TextInput, softkeyClass } from "./ui";
 
 export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, onClose }) {
   const { t, ph } = useEdition();
   const isMayday = kind === "mayday";
-  const situations = isMayday ? ph.MAYDAY_SITUATIONS : ph.PAN_SITUATIONS;
+  const heli = isHeli(flight);
+  const situations = heli
+    ? isMayday
+      ? ph.HELI_MAYDAY_SITUATIONS
+      : ph.HELI_PAN_SITUATIONS
+    : isMayday
+      ? ph.MAYDAY_SITUATIONS
+      : ph.PAN_SITUATIONS;
   const [situation, setSituation] = useState(situations[0]);
-  const [action, setAction] = useState(isMayday ? "land-runway" : flight.mode === "CENTER" ? "vectors" : "join-downwind");
+  // A helicopter with an engine failure autorotates; a PAN lands as a precaution.
+  const [action, setAction] = useState(
+    heli ? (isMayday ? "autorotation" : "land-site") : isMayday ? "land-runway" : flight.mode === "CENTER" ? "vectors" : "join-downwind"
+  );
   const [site, setSite] = useState("");
 
   useEffect(() => {
@@ -62,7 +73,7 @@ export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, 
 
           <ChipGroup label={t("Situation")} options={situations.map((s) => ({ value: s, label: s }))} value={situation} onChange={setSituation} tone="magenta" />
           <ChipGroup label={t("Action")} options={ph.emergencyActions(flight)} value={action} onChange={setAction} tone="magenta" />
-          {action === "land-site" && (
+          {(action === "land-site" || action === "autorotation") && (
             <TextInput label={t("Landing site")} value={site} onChange={setSite} placeholder={t("Senora Freeway, the beach…")} autoFocus />
           )}
 
@@ -95,6 +106,11 @@ export default function EmergencyPanel({ kind, flight, update, copiedKey, copy, 
             />
           )}
 
+          {heli && action === "autorotation" && (
+            <p className="rounded border border-av-amber/30 bg-av-amber/5 px-2 py-1 text-[11px] text-av-amber">
+              🚁 {t("Autorotation: pick a field, strip or road, hold 80kt down to it, then flare to slow the descent and touch down.")}
+            </p>
+          )}
           <p className="font-avmono text-[10px] uppercase tracking-wider text-av-mute">
             {t("Aviate · Navigate · Communicate. A short call is fine if you have no time to type.")}
           </p>

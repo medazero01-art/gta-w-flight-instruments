@@ -31,14 +31,15 @@ function runwayHints(icao, saaaData) {
 // The SAAA diagram with every parking spot and runway end clickable, and the taxi route
 // between the chosen spot and runway drawn on it. Zoomed out, only the chosen spot is named
 // (the others would pile up); hovering a spot names it too.
-function ChartPicker({ icao, spot, runway, direction, closed, best, onSpot, onRunway }) {
+// `showRoute` is off for a helicopter lifting off from / landing on its spot: no taxi there.
+function ChartPicker({ icao, spot, runway, direction, showRoute = true, closed, best, onSpot, onRunway }) {
   const { t } = useEdition();
   const airport = AIRPORTS[icao];
   const geo = CHART_GEO[icao];
   const graph = TAXI[icao];
   const [hover, setHover] = useState(null);
   const k = geo.width / 60;
-  const route = graph ? taxiRoute({ icao, spot, runway, direction }) : null;
+  const route = graph && showRoute ? taxiRoute({ icao, spot, runway, direction }) : null;
   const spots = graph ? Object.entries(graph.spots) : [];
 
   return (
@@ -170,6 +171,21 @@ function Reminder({ dep, arr, saaaData }) {
 
 /* ------------------------------------------------------------ dialog */
 
+const AIRCRAFT_OPTIONS = (t) => [
+  { value: "airplane", label: `✈ ${t("Airplane")}` },
+  { value: "helicopter", label: `🚁 ${t("Helicopter")}` },
+];
+const ROLE_OPTIONS = (t) => [
+  { value: "civil", label: t("Civil") },
+  { value: "medevac", label: "MEDEVAC" },
+  { value: "sd", label: "SD" },
+];
+const pointOptions = (t, side) => [
+  { value: "spot", label: t("Parking / helipad") },
+  { value: "runway", label: side === "dep" ? t("Runway (hover taxi)") : t("Runway") },
+  { value: "site", label: t("Off-airfield site") },
+];
+
 // Shown once per browser session, filled with the last flight (restored from localStorage):
 // the pilot checks the few things that change between flights and starts right away.
 export default function PreflightDialog({ flight, saaaData, onStart, onResume }) {
@@ -177,6 +193,12 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
   const [draft, setDraft] = useState(() => ({
     callsign: flight.callsign,
     registration: flight.registration,
+    aircraft: flight.aircraft,
+    heliRole: flight.heliRole,
+    depPoint: flight.depPoint,
+    arrPoint: flight.arrPoint,
+    depSite: flight.depSite,
+    arrSite: flight.arrSite,
     dep: flight.dep,
     arr: flight.arr,
     rules: flight.rules,
@@ -191,14 +213,22 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
   const [chartTab, setChartTab] = useState("dep");
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
 
+  const heli = draft.aircraft === "helicopter";
+  // Airplanes always use runways; helicopters may lift off/land on a spot or an off-airfield site.
+  const depPoint = heli ? draft.depPoint : "runway";
+  const arrPoint = heli ? draft.arrPoint : "runway";
   // Same airport both ways (pattern work): one runway, one parking, one diagram.
-  const roundTrip = draft.dep === draft.arr;
+  const roundTrip = draft.dep === draft.arr && depPoint === arrPoint && depPoint !== "site";
   const tab = roundTrip ? "dep" : chartTab;
   const dep = AIRPORTS[draft.dep];
   const arr = AIRPORTS[draft.arr];
   const depHints = runwayHints(draft.dep, saaaData);
   const arrHints = runwayHints(draft.arr, saaaData);
-  const ready = draft.callsign.trim().length > 1 && draft.runway && !depHints.closed.includes(draft.runway);
+  const ready =
+    draft.callsign.trim().length > 1 &&
+    (depPoint === "runway" ? Boolean(draft.runway) && !depHints.closed.includes(draft.runway) : true) &&
+    (depPoint === "site" ? draft.depSite.trim().length > 0 : true) &&
+    (arrPoint === "site" ? draft.arrSite.trim().length > 0 : true);
 
   // Changing an airport brings back what was used there last time.
   const pickDeparture = (icao) =>
@@ -215,7 +245,10 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
 
   const submit = (e) => {
     e.preventDefault();
-    if (ready) onStart(roundTrip ? { ...draft, arrSpot: draft.spot, arrRunway: draft.runway } : draft);
+    if (!ready) return;
+    // The helicopter mission sets the MEDEVAC prefix; airplanes keep their own toggle.
+    const plan = { ...draft, medevac: heli ? draft.heliRole === "medevac" : flight.medevac };
+    onStart(roundTrip ? { ...plan, arrSpot: draft.spot, arrRunway: draft.runway } : plan);
   };
 
   const runwayChips = (airport, hints, value, onChange) => (
@@ -231,6 +264,15 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
       onChange={onChange}
     />
   );
+
+  const siteInput = (value, onChange, onFocus) => (
+    <label className="block">
+      <FieldLabel>{t("Site")}</FieldLabel>
+      <input value={value} onChange={(e) => onChange(e.target.value)} onFocus={onFocus} placeholder={t("Pillbox Hill Medical Center, the scene…")} className={inputClass} />
+    </label>
+  );
+
+  const tabPoint = tab === "dep" ? depPoint : arrPoint;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
@@ -251,6 +293,11 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
         <div className="grid grid-cols-1 gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
           {/* ---- the form ---- */}
           <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[auto_1fr]">
+              <ChipGroup label={t("Aircraft type")} options={AIRCRAFT_OPTIONS(t)} value={draft.aircraft} onChange={(aircraft) => set({ aircraft })} tone="magenta" />
+              {heli && <ChipGroup label={t("Mission")} options={ROLE_OPTIONS(t)} value={draft.heliRole} onChange={(heliRole) => set({ heliRole })} tone="magenta" />}
+            </div>
+
             <div className={`grid grid-cols-1 gap-3 ${edition.radar ? "sm:grid-cols-[1fr_auto]" : ""}`}>
               <label className="block">
                 <FieldLabel>{t("Callsign")}</FieldLabel>
@@ -263,18 +310,18 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
                 />
               </label>
               {edition.radar && (
-              <div>
-                <FieldLabel>Live radar</FieldLabel>
-                <ChipGroup
-                  tone="green"
-                  options={[
-                    { value: true, label: "● On" },
-                    { value: false, label: "Off" },
-                  ]}
-                  value={draft.radarOn}
-                  onChange={(radarOn) => set({ radarOn })}
-                />
-              </div>
+                <div>
+                  <FieldLabel>Live radar</FieldLabel>
+                  <ChipGroup
+                    tone="green"
+                    options={[
+                      { value: true, label: "● On" },
+                      { value: false, label: "Off" },
+                    ]}
+                    value={draft.radarOn}
+                    onChange={(radarOn) => set({ radarOn })}
+                  />
+                </div>
               )}
             </div>
             {!edition.radar ? null : showReg ? (
@@ -294,63 +341,102 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
             )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <ChipGroup label={t("Departure")} options={airportOptions} value={draft.dep} onChange={pickDeparture} />
-              <ChipGroup label={t("Arrival")} options={airportOptions} value={draft.arr} onChange={pickArrival} />
+              <ChipGroup label={depPoint === "site" ? t("Nearest airport (departure)") : t("Departure")} options={airportOptions} value={draft.dep} onChange={pickDeparture} />
+              <ChipGroup label={arrPoint === "site" ? t("Nearest airport (arrival)") : t("Arrival")} options={airportOptions} value={draft.arr} onChange={pickArrival} />
             </div>
 
             <div className="space-y-2 rounded border border-av-line/70 bg-black/20 p-3">
-              <div className="font-avmono text-[10px] font-bold uppercase tracking-[0.14em] text-av-cyan">{t("Departure")} · {dep.shortName}</div>
-              <div>
-                <FieldLabel>{t("Starting position")}</FieldLabel>
+              <div className="font-avmono text-[10px] font-bold uppercase tracking-[0.14em] text-av-cyan">
+                {t("Departure")} · {depPoint === "site" ? draft.depSite || t("Off-airfield site") : dep.shortName}
+              </div>
+              {heli && (
                 <ChipGroup
+                  label={t("Lift off from")}
                   size="sm"
-                  options={dep.spots.map((s) => ({ value: s, label: s }))}
-                  value={draft.spot}
-                  onChange={(spot) => {
-                    set({ spot });
+                  options={pointOptions(t, "dep")}
+                  value={draft.depPoint}
+                  onChange={(p) => {
+                    set({ depPoint: p });
                     setChartTab("dep");
                   }}
                 />
-                <input
-                  value={draft.spot}
-                  onChange={(e) => set({ spot: e.target.value })}
-                  onFocus={() => setChartTab("dep")}
-                  placeholder={t("Or type it (Gate 8…)")}
-                  aria-label={t("Custom starting position")}
-                  className={`${inputClass} mt-1.5 !text-xs`}
-                />
-              </div>
-              <div>
-                <FieldLabel>{t("Takeoff runway")}</FieldLabel>
-                {runwayChips(dep, depHints, draft.runway, (runway) => {
-                  set({ runway });
-                  setChartTab("dep");
-                })}
-              </div>
+              )}
+              {depPoint === "site" ? (
+                siteInput(draft.depSite, (depSite) => set({ depSite }), () => setChartTab("dep"))
+              ) : (
+                <div>
+                  <FieldLabel>{heli ? t("Parking / helipad") : t("Starting position")}</FieldLabel>
+                  <ChipGroup
+                    size="sm"
+                    options={dep.spots.map((s) => ({ value: s, label: s }))}
+                    value={draft.spot}
+                    onChange={(spot) => {
+                      set({ spot });
+                      setChartTab("dep");
+                    }}
+                  />
+                  <input
+                    value={draft.spot}
+                    onChange={(e) => set({ spot: e.target.value })}
+                    onFocus={() => setChartTab("dep")}
+                    placeholder={t("Or type it (Gate 8…)")}
+                    aria-label={t("Custom starting position")}
+                    className={`${inputClass} mt-1.5 !text-xs`}
+                  />
+                </div>
+              )}
+              {depPoint === "runway" && (
+                <div>
+                  <FieldLabel>{t("Takeoff runway")}</FieldLabel>
+                  {runwayChips(dep, depHints, draft.runway, (runway) => {
+                    set({ runway });
+                    setChartTab("dep");
+                  })}
+                </div>
+              )}
             </div>
 
             {!roundTrip && (
               <div className="space-y-2 rounded border border-av-line/70 bg-black/20 p-3">
-                <div className="font-avmono text-[10px] font-bold uppercase tracking-[0.14em] text-av-cyan">{t("Arrival")} · {arr.shortName}</div>
-                <div>
-                  <FieldLabel>{t("Landing runway")}</FieldLabel>
-                  {runwayChips(arr, arrHints, draft.arrRunway, (arrRunway) => {
-                    set({ arrRunway });
-                    setChartTab("arr");
-                  })}
+                <div className="font-avmono text-[10px] font-bold uppercase tracking-[0.14em] text-av-cyan">
+                  {t("Arrival")} · {arrPoint === "site" ? draft.arrSite || t("Off-airfield site") : arr.shortName}
                 </div>
-                <div>
-                  <FieldLabel>{t("Parking after landing")}</FieldLabel>
+                {heli && (
                   <ChipGroup
+                    label={t("Land on")}
                     size="sm"
-                    options={arr.spots.map((s) => ({ value: s, label: s }))}
-                    value={draft.arrSpot}
-                    onChange={(arrSpot) => {
-                      set({ arrSpot });
+                    options={pointOptions(t, "arr")}
+                    value={draft.arrPoint}
+                    onChange={(p) => {
+                      set({ arrPoint: p });
                       setChartTab("arr");
                     }}
                   />
-                </div>
+                )}
+                {arrPoint === "site" && siteInput(draft.arrSite, (arrSite) => set({ arrSite }), () => setChartTab("arr"))}
+                {arrPoint === "runway" && (
+                  <div>
+                    <FieldLabel>{t("Landing runway")}</FieldLabel>
+                    {runwayChips(arr, arrHints, draft.arrRunway, (arrRunway) => {
+                      set({ arrRunway });
+                      setChartTab("arr");
+                    })}
+                  </div>
+                )}
+                {arrPoint !== "site" && (
+                  <div>
+                    <FieldLabel>{heli && arrPoint === "spot" ? t("Parking / helipad") : t("Parking after landing")}</FieldLabel>
+                    <ChipGroup
+                      size="sm"
+                      options={arr.spots.map((s) => ({ value: s, label: s }))}
+                      value={draft.arrSpot}
+                      onChange={(arrSpot) => {
+                        set({ arrSpot });
+                        setChartTab("arr");
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -386,25 +472,30 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
                 <ChipGroup
                   size="sm"
                   options={[
-                    { value: "dep", label: `${t("Departure")} · ${draft.dep}` },
-                    { value: "arr", label: `${t("Arrival")} · ${draft.arr}` },
+                    { value: "dep", label: `${t("Departure")} · ${depPoint === "site" ? t("site") : draft.dep}` },
+                    { value: "arr", label: `${t("Arrival")} · ${arrPoint === "site" ? t("site") : draft.arr}` },
                   ]}
                   value={tab}
                   onChange={setChartTab}
                 />
               )}
             </div>
-            {tab === "dep" ? (
+            {tabPoint === "site" ? (
+              <div className="grid min-h-[200px] place-items-center rounded border border-dashed border-av-line p-6 text-center font-avmono text-[11px] text-av-mute">
+                {t("Off-airfield site: no airport diagram. Assess the landing zone from a few hundred feet above before landing.")}
+              </div>
+            ) : tab === "dep" ? (
               <ChartPicker
                 key={`dep-${draft.dep}`}
                 icao={draft.dep}
                 spot={draft.spot}
                 runway={draft.runway}
                 direction="out"
+                showRoute={depPoint === "runway"}
                 closed={depHints.closed}
                 best={depHints.best}
                 onSpot={(spot) => set({ spot })}
-                onRunway={(runway) => set({ runway })}
+                onRunway={(runway) => set({ runway, ...(heli && depPoint !== "runway" ? { depPoint: "runway" } : {}) })}
               />
             ) : (
               <ChartPicker
@@ -413,10 +504,11 @@ export default function PreflightDialog({ flight, saaaData, onStart, onResume })
                 spot={draft.arrSpot}
                 runway={draft.arrRunway}
                 direction="in"
+                showRoute={arrPoint === "runway"}
                 closed={arrHints.closed}
                 best={arrHints.best}
                 onSpot={(arrSpot) => set({ arrSpot })}
-                onRunway={(arrRunway) => set({ arrRunway })}
+                onRunway={(arrRunway) => set({ arrRunway, ...(heli && arrPoint !== "runway" ? { arrPoint: "runway" } : {}) })}
               />
             )}
           </div>

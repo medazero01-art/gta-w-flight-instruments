@@ -117,6 +117,15 @@ function buildContext(flight) {
     landingKey: flight.landing,
     finalVerb: flight.finalVerb === "turning" ? "Turning final" : "On final",
     route: flight.route.trim(),
+    rules: flight.rules,
+    // Helicopter: where we lift off from / land, as said on the radio.
+    depSpot: flight.spots[flight.dep] || "the apron",
+    arrSpot: flight.spots[flight.arr] || "the apron",
+    depSite: flight.depSite.trim() || "[site]",
+    arrSite: flight.arrSite.trim() || "[site]",
+    depPoint: flight.depPoint,
+    arrPoint: flight.arrPoint,
+    autoSite: flight.autoSite.trim(),
   };
 }
 
@@ -298,19 +307,167 @@ const CENTER_CALLS = {
   ],
 };
 
+/* ---------------------------------------------------------------- helicopters */
+
+// SAAA Rotorcraft Syllabus: hover taxi at 10ft, lift-off from a runway, a helipad or a spot,
+// on-airfield landings on a runway or directly on a helipad/spot, off-airfield landings
+// after assessing the site from above. Runway work uses the airplane calls.
+const depWhere = (c) => (c.depPoint === "site" ? c.depSite : c.depSpot);
+const arrWhere = (c) => (c.arrPoint === "site" ? c.arrSite : c.arrSpot);
+const depLong = (c) => (c.depPoint === "site" ? c.depSite : `${c.depSpot} at ${c.dep.name}`);
+const arrLong = (c) => (c.arrPoint === "site" ? c.arrSite : c.arrPoint === "spot" ? `${c.arrSpot} at ${c.arr.name}` : c.arr.name);
+const heliInbound = (c) => `Inbound from the ${c.from}${c.landmark ? ` over ${c.landmark}` : ""} at ${c.alt}`;
+
+// The takeoff briefing format from the syllabus, said to the crew (not on the frequency).
+// Two lines so each one stays under the chat limit: intentions, then emergencies.
+function briefingCalls(c) {
+  const from = c.depPoint === "runway" ? `${c.rwy} at ${c.dep.name}` : depLong(c);
+  const over = c.landmark ? ` over ${c.landmark}` : "";
+  return [
+    {
+      id: "briefing-1",
+      label: "Takeoff briefing 1/2 (crew)",
+      channel: "say",
+      text: join([`We are taking off from ${from}`, `After takeoff, we will climb to ${c.target} and proceed ${c.dir}bound${over}, and be ${c.rules} to ${arrLong(c)}`]),
+    },
+    {
+      id: "briefing-2",
+      label: "Takeoff briefing 2/2 (crew)",
+      channel: "say",
+      text: join([
+        "In case of an emergency, we will deal with it accordingly on the climb",
+        `If we have an engine failure, we will perform an autorotation landing on ${c.autoSite || "the safest open area ahead of us"}`,
+      ]),
+    },
+  ];
+}
+
+const HELI_CTAF_CALLS = {
+  clearance: () => [],
+  ground: (c) =>
+    c.depPoint === "runway"
+      ? [
+          {
+            id: "hover-taxi",
+            label: "Hover taxi to runway",
+            text: ctaf(c, `At ${c.depSpot}`, `Hover taxiing to ${c.rwy}${c.via ? ` via ${c.via}` : ""}`),
+            next: "departure",
+          },
+        ]
+      : [],
+  departure: (c) => [
+    ...(c.depPoint === "runway"
+      ? CTAF_CALLS.departure(c)
+      : [
+          {
+            id: "lift-off",
+            label: "Lift-off, departing",
+            text: ctaf(c, `Lifting off from ${depWhere(c)}`, `Departing to the ${c.dir}`, `Climbing to ${c.target}`),
+            next: "enroute",
+          },
+        ]),
+    ...briefingCalls(c),
+  ],
+  enroute: (c) => CTAF_CALLS.enroute(c),
+  arrival: (c) => {
+    if (c.arrPoint === "runway") return CTAF_CALLS.arrival(c);
+    if (c.arrPoint === "site") {
+      return [
+        {
+          id: "assess",
+          label: "Inbound, assessing the site",
+          text: ctaf(c, heliInbound(c), `Orbiting over ${c.arrSite} to assess the landing zone`),
+          next: "pattern",
+        },
+      ];
+    }
+    return [
+      {
+        id: "inbound-spot",
+        label: "Inbound, direct to the spot",
+        text: ctaf(c, heliInbound(c), `Landing directly at ${c.arrSpot}`),
+        next: "pattern",
+      },
+    ];
+  },
+  pattern: (c) =>
+    c.arrPoint === "runway"
+      ? CTAF_CALLS.pattern(c)
+      : [
+          { id: "landing", label: c.arrPoint === "site" ? "Landing at the site" : "Short final", text: ctaf(c, c.arrPoint === "site" ? `Landing at ${c.arrSite}` : `Short final for ${c.arrSpot}`), next: "taxiin" },
+          { id: "go-around", label: "Go around", text: ctaf(c, `Going around`, c.arrPoint === "site" ? `Remaining over ${c.arrSite}` : null) },
+        ],
+  taxiin: (c) =>
+    c.arrPoint === "runway"
+      ? [
+          {
+            id: "vacated",
+            label: "Runway vacated, hover taxi to parking",
+            text: ctaf(c, `Clear of ${c.rwy}`, `Hover taxiing to ${c.arrSpot}${c.via ? ` via ${c.via}` : ""}`),
+          },
+        ]
+      : [{ id: "down", label: "On the ground", text: ctaf(c, `On the ground at ${arrWhere(c)}`) }],
+};
+
+const HELI_CENTER_CALLS = {
+  clearance: (c) =>
+    c.vfr
+      ? [{ id: "vfr-clearance", label: "VFR clearance", text: center(c, `At ${depLong(c)}`, `Request VFR clearance to ${arrLong(c)} at ${c.target}`) }]
+      : CENTER_CALLS.clearance(c),
+  ground: (c) =>
+    c.depPoint === "runway"
+      ? [{ id: "hover-taxi", label: "Request hover taxi", text: center(c, `At ${c.depSpot} at ${c.dep.name}`, `Request hover taxi to ${c.rwy}`), next: "departure" }]
+      : [],
+  departure: (c) => [
+    ...(c.depPoint === "runway"
+      ? CENTER_CALLS.departure(c)
+      : [{ id: "ready", label: "Ready for departure", text: center(c, `At ${depLong(c)}`, `Ready for departure to the ${c.dir}`), next: "enroute" }]),
+    ...briefingCalls(c),
+  ],
+  enroute: (c) => CENTER_CALLS.enroute(c),
+  arrival: (c) =>
+    c.arrPoint === "runway"
+      ? CENTER_CALLS.arrival(c)
+      : [{ id: "inbound", label: "Inbound for landing", text: center(c, heliInbound(c), `Request landing at ${arrLong(c)}`), next: "pattern" }],
+  pattern: (c) =>
+    c.arrPoint === "runway"
+      ? CENTER_CALLS.pattern(c)
+      : [
+          { id: "final", label: "Short final", text: center(c, `Short final for ${arrWhere(c)}`), next: "taxiin" },
+          { id: "go-around", label: "Go around", text: center(c, "Going around") },
+        ],
+  taxiin: (c) =>
+    c.arrPoint === "runway"
+      ? [{ id: "vacated", label: "Runway vacated", text: center(c, `Clear of ${c.rwy}${c.via ? ` at ${c.via}` : ""}`, `Request hover taxi to ${c.arrSpot}`) }]
+      : [{ id: "down", label: "On the ground", text: center(c, `On the ground at ${arrWhere(c)}`) }],
+};
+
 export function buildCalls(flight) {
   const c = buildContext(flight);
-  const table = c.center ? CENTER_CALLS : CTAF_CALLS;
+  const heli = flight.aircraft === "helicopter";
+  const table = c.center ? (heli ? HELI_CENTER_CALLS : CENTER_CALLS) : heli ? HELI_CTAF_CALLS : CTAF_CALLS;
   return table[flight.phase](c).map((call) => ({ channel: "atc", ...call }));
 }
 
-export const emergencyActions = (flight) => [
-  { value: "land-runway", label: "Land on the runway" },
-  { value: "land-site", label: "Land on…" },
-  { value: "return-dep", label: `Return to ${AIRPORTS[flight.dep].shortName}` },
-  { value: "join-downwind", label: "Join downwind" },
-  ...(flight.mode === "CENTER" ? [{ value: "vectors", label: "Priority vectors" }] : []),
-];
+export const HELI_MAYDAY_SITUATIONS = ["Engine failure", "Tail rotor failure", "Fire on board", "Engine fire", "Structural damage"];
+export const HELI_PAN_SITUATIONS = ["Chip light on", "Low fuel", "We have a sick passenger", "Rough running engine", "Bird strike"];
+
+export const emergencyActions = (flight) =>
+  flight.aircraft === "helicopter"
+    ? [
+        { value: "autorotation", label: "Autorotate to…" },
+        { value: "land-site", label: "Precautionary landing on…" },
+        { value: "land-runway", label: "Land on the runway" },
+        { value: "return-dep", label: `Return to ${AIRPORTS[flight.dep].shortName}` },
+        ...(flight.mode === "CENTER" ? [{ value: "vectors", label: "Priority vectors" }] : []),
+      ]
+    : [
+        { value: "land-runway", label: "Land on the runway" },
+        { value: "land-site", label: "Land on…" },
+        { value: "return-dep", label: `Return to ${AIRPORTS[flight.dep].shortName}` },
+        { value: "join-downwind", label: "Join downwind" },
+        ...(flight.mode === "CENTER" ? [{ value: "vectors", label: "Priority vectors" }] : []),
+      ];
 
 export function buildEmergency(flight, emergency) {
   const c = buildContext(flight);
@@ -319,7 +476,8 @@ export function buildEmergency(flight, emergency) {
 
   const actions = {
     "land-runway": `Executing an emergency landing on ${c.rwy}`,
-    "land-site": `Executing an emergency landing on ${emergency.site.trim() || "[landing site]"}`,
+    "land-site": `Executing ${flight.aircraft === "helicopter" ? "a precautionary" : "an emergency"} landing on ${emergency.site.trim() || "[landing site]"}`,
+    autorotation: `Autorotating to ${emergency.site.trim() || "[landing site]"}`,
     "return-dep": `Returning to ${c.dep.name}`,
     "join-downwind": `Joining ${c.pattern} downwind for ${c.rwy}`,
     vectors: `Request priority vectors to ${c.arr.name}`,

@@ -13,7 +13,8 @@ export function radarPatch(flight, own) {
     patch.landmark = own.place;
     if (flight.phase === "enroute") patch.dir = cardinal(own.heading);
   }
-  if (flight.phase === "arrival") patch.from = cardinal(bearing(AIRPORTS[flight.arr].position, own));
+  // Inbound direction is relative to the arrival airport, meaningless for an off-airfield site.
+  if (flight.phase === "arrival" && !(flight.aircraft === "helicopter" && flight.arrPoint === "site")) patch.from = cardinal(bearing(AIRPORTS[flight.arr].position, own));
   return Object.entries(patch).some(([key, value]) => flight[key] !== value) ? patch : null;
 }
 

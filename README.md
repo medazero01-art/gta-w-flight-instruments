@@ -11,6 +11,8 @@ Radio calls, airport charts and taxi routes for pilot roleplay, in two editions:
 
 `radar.gta.world` and `saaa.gta.world` belong to GTA World (English): the France edition never calls them.
 
+Both editions fly **airplanes or helicopters** (chosen at preflight). Helicopters (civil, MEDEVAC or SD mission) lift off and land on a parking spot/helipad, a runway (hover taxi) or an off-airfield site, get the takeoff briefing and autorotation emergencies, and show the SAAA Rotorcraft Syllabus limits for each phase.
+
 ## Run
 
 ```bash

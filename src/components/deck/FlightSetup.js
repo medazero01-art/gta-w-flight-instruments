@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AIRPORTS } from "@/lib/atc/airports";
-import { callingForPhase } from "@/lib/atc/flight";
+import { callingForPhase, isHeli } from "@/lib/atc/flight";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, Panel, TextInput, Toggle, softkeyClass } from "./ui";
 
@@ -11,6 +11,7 @@ const airportOptions = Object.values(AIRPORTS).map((a) => ({ value: a.icao, labe
 export default function FlightSetup({ flight, update, onNewFlight }) {
   const { edition, t } = useEdition();
   const [open, setOpen] = useState(!flight.callsign);
+  const heli = isHeli(flight);
 
   // The airport we're calling follows the new dep/arr for the current phase.
   const setAirport = (patch) => update({ ...patch, calling: callingForPhase(flight.phase, { ...flight, ...patch }) });
@@ -35,15 +36,41 @@ export default function FlightSetup({ flight, update, onNewFlight }) {
         <div className="font-avmono">
           <div className="text-lg font-bold text-av-cyan leading-tight">{flight.callsign || t("NO CALLSIGN")}</div>
           <div className="text-[12px] text-av-text">
-            {flight.dep} <span className="text-av-magenta">━━▶</span> {flight.arr}
+            {heli && <span className="mr-1">🚁</span>}
+            {heli && flight.depPoint === "site" ? flight.depSite || t("site") : flight.dep} <span className="text-av-magenta">━━▶</span>{" "}
+            {heli && flight.arrPoint === "site" ? flight.arrSite || t("site") : flight.arr}
             <span className="ml-2 text-av-dim">{flight.rules}</span>
             {flight.medevac && <span className="ml-2 text-av-amber">MEDEVAC</span>}
+            {heli && flight.heliRole === "sd" && <span className="ml-2 text-av-amber">SD</span>}
             {flight.formation && <span className="ml-2 text-av-amber">{t("FLT OF {n}", { n: flight.formationCount })}</span>}
           </div>
           {edition.radar && flight.registration && <div className="text-[10px] text-av-mute">RADAR REG {flight.registration}</div>}
         </div>
       ) : (
         <div className="space-y-3">
+          <ChipGroup
+            label={t("Aircraft type")}
+            tone="magenta"
+            options={[
+              { value: "airplane", label: `✈ ${t("Airplane")}` },
+              { value: "helicopter", label: `🚁 ${t("Helicopter")}` },
+            ]}
+            value={flight.aircraft}
+            onChange={(aircraft) => update({ aircraft, calling: callingForPhase(flight.phase, { ...flight, aircraft }) })}
+          />
+          {heli && (
+            <ChipGroup
+              label={t("Mission")}
+              tone="magenta"
+              options={[
+                { value: "civil", label: t("Civil") },
+                { value: "medevac", label: "MEDEVAC" },
+                { value: "sd", label: "SD" },
+              ]}
+              value={flight.heliRole}
+              onChange={(heliRole) => update({ heliRole, medevac: heliRole === "medevac" })}
+            />
+          )}
           <TextInput
             label={t("Callsign")}
             value={flight.callsign}
@@ -74,7 +101,7 @@ export default function FlightSetup({ flight, update, onNewFlight }) {
           </div>
 
           <div className="flex flex-wrap gap-1">
-            <Toggle label="MEDEVAC" checked={flight.medevac} onChange={(medevac) => update({ medevac })} />
+            {!heli && <Toggle label="MEDEVAC" checked={flight.medevac} onChange={(medevac) => update({ medevac })} />}
             <Toggle label={t("Formation")} checked={flight.formation} onChange={(formation) => update({ formation })} />
           </div>
           {flight.formation && (
