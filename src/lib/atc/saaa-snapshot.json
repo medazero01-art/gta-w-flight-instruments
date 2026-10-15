@@ -1,0 +1,331 @@
+{
+  "capturedAt": "2026-10-14T20:00:00Z",
+  "airports": [
+    {
+      "id": 1,
+      "name": "Los Santos International Airport",
+      "icao_code": "KLSI",
+      "description": "Main international airport serving Los Santos.",
+      "city": "Los Santos",
+      "state": "San Andreas",
+      "country": "United States",
+      "latitude": "34.05220000",
+      "longitude": "-118.24370000",
+      "elevation": 125,
+      "runways": [
+        {
+          "designation": "30L/12R",
+          "length": 2350,
+          "width": 90,
+          "surface": "Asphalt"
+        },
+        {
+          "designation": "30R/12L",
+          "length": 2350,
+          "width": 90,
+          "surface": "Asphalt"
+        },
+        {
+          "designation": "03/21",
+          "length": 1920,
+          "width": 105,
+          "surface": "Asphalt"
+        }
+      ],
+      "refueling_available": true,
+      "atc_available": true,
+      "mechanic_services_available": true,
+      "flight_schools": [
+        {
+          "name": "SkyBound Aviation",
+          "phone": "19001755",
+          "website": "https://skyboundaviation.net/"
+        },
+        {
+          "name": "IMEX Internal Flight School",
+          "phone": "4369",
+          "website": "https://imex.gta.world/"
+        }
+      ],
+      "airlines": [
+        {
+          "name": "SkyBound Aviation",
+          "code": "SKB",
+          "type": "Commercial"
+        },
+        {
+          "name": "IMEX Logistics",
+          "code": "IMX",
+          "type": "Cargo"
+        }
+      ],
+      "is_active": true,
+      "created_at": "2025-08-16T13:14:15.000000Z",
+      "updated_at": "2026-09-07T22:45:36.000000Z",
+      "charts": [
+        {
+          "id": 1,
+          "airport_id": 1,
+          "name": "Airport Diagram",
+          "type": "Airport Diagram",
+          "description": null,
+          "file_path": null,
+          "file_url": "https://i.ibb.co.com/PdRZpm7/KLSI-Los-Santos-Intl-Diagram.png",
+          "file_type": "link",
+          "file_size": 0,
+          "is_active": true,
+          "created_at": "2025-08-16T13:31:05.000000Z",
+          "updated_at": "2026-09-13T09:50:11.000000Z"
+        },
+        {
+          "id": 6,
+          "airport_id": 1,
+          "name": "KLSI DOCKS 1 RNAV Departure",
+          "type": "Departure",
+          "description": null,
+          "file_path": null,
+          "file_url": "https://i.imgur.com/lSzHVbZ.png",
+          "file_type": "link",
+          "file_size": 0,
+          "is_active": true,
+          "created_at": "2026-09-07T22:47:37.000000Z",
+          "updated_at": "2026-09-07T22:48:44.000000Z"
+        },
+        {
+          "id": 7,
+          "airport_id": 1,
+          "name": "KLSI PIERR 1 RNAV Departure",
+          "type": "Departure",
+          "description": null,
+          "file_path": null,
+          "file_url": "https://i.imgur.com/gWh0rYI.png",
+          "file_type": "link",
+          "file_size": 0,
+          "is_active": true,
+          "created_at": "2026-09-07T22:48:37.000000Z",
+          "updated_at": "2026-09-07T22:48:37.000000Z"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Sandy Shores Airfield",
+      "icao_code": "KSSA",
+      "description": "Regional airport serving Sandy Shores area.",
+      "city": "Sandy Shores",
+      "state": "San Andreas",
+      "country": "United States",
+      "latitude": "34.12340000",
+      "longitude": "-118.56780000",
+      "elevation": 100,
+      "runways": [
+        {
+          "designation": "25/07",
+          "length": 2550,
+          "width": 150,
+          "surface": "Gravel"
+        },
+        {
+          "designation": "04/22",
+          "length": 1500,
+          "width": 150,
+          "surface": "Gravel"
+        }
+      ],
+      "refueling_available": true,
+      "atc_available": true,
+      "mechanic_services_available": true,
+      "flight_schools": [
+        {
+          "name": "SAAA Flight School",
+          "phone": "7400",
+          "website": "https://saaa.gta.world"
+        }
+      ],
+      "airlines": [
+        {
+          "name": "SenoraAir",
+          "code": "SNR",
+          "type": "Cargo"
+        }
+      ],
+      "is_active": true,
+      "created_at": "2025-08-16T13:14:15.000000Z",
+      "updated_at": "2026-09-23T09:34:19.000000Z",
+      "charts": [
+        {
+          "id": 2,
+          "airport_id": 2,
+          "name": "Airport Diagram",
+          "type": "Airport Diagram",
+          "description": null,
+          "file_path": null,
+          "file_url": "https://i.ibb.co.com/sv1P1bmf/KSSA-Sandy-Shores.png",
+          "file_type": "link",
+          "file_size": 0,
+          "is_active": true,
+          "created_at": "2025-08-16T13:32:08.000000Z",
+          "updated_at": "2026-09-13T09:19:16.000000Z"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "McKenzie Airfield",
+      "icao_code": "KLGP",
+      "description": "Small general aviation airport serving Blaine County.",
+      "city": "Grapeseed",
+      "state": "San Andreas",
+      "country": "United States",
+      "latitude": null,
+      "longitude": null,
+      "elevation": 135,
+      "runways": [
+        {
+          "designation": "06/24",
+          "length": 800,
+          "width": 70,
+          "surface": "Gravel"
+        }
+      ],
+      "refueling_available": true,
+      "atc_available": false,
+      "mechanic_services_available": false,
+      "flight_schools": [],
+      "airlines": [],
+      "is_active": true,
+      "created_at": "2025-08-16T13:46:34.000000Z",
+      "updated_at": "2026-08-20T18:51:26.000000Z",
+      "charts": [
+        {
+          "id": 3,
+          "airport_id": 5,
+          "name": "Airport Diagram",
+          "type": "Airport Diagram",
+          "description": null,
+          "file_path": null,
+          "file_url": "https://saaa-assets.gta.world/GS_Diagram.png",
+          "file_type": "link",
+          "file_size": 0,
+          "is_active": true,
+          "created_at": "2025-08-16T13:47:08.000000Z",
+          "updated_at": "2025-08-19T21:31:58.000000Z"
+        },
+        {
+          "id": 4,
+          "airport_id": 5,
+          "name": "VFR Departure/Arrival",
+          "type": "Approach/Departure",
+          "description": null,
+          "file_path": null,
+          "file_url": "https://saaa-assets.gta.world/GS_Routes.png",
+          "file_type": "link",
+          "file_size": 0,
+          "is_active": true,
+          "created_at": "2025-08-16T19:04:04.000000Z",
+          "updated_at": "2025-08-19T21:33:09.000000Z"
+        }
+      ]
+    }
+  ],
+  "weather": [
+    {
+      "id": 4,
+      "area_name": "Los Santos",
+      "api_location": "Los Angeles",
+      "visibility": 10000,
+      "temperature": "20.0",
+      "wind_speed": 3,
+      "wind_direction": 232,
+      "cloud_cover": "few",
+      "cloud_altitude": 3000,
+      "precipitation": "none",
+      "fog_mist": "none",
+      "is_active": true,
+      "created_at": "2026-08-20T18:42:03.000000Z",
+      "updated_at": "2026-09-29T13:40:01.000000Z"
+    },
+    {
+      "id": 5,
+      "area_name": "Paleto Bay",
+      "api_location": "Morro Bay",
+      "visibility": 10000,
+      "temperature": "20.0",
+      "wind_speed": 7,
+      "wind_direction": 286,
+      "cloud_cover": "overcast",
+      "cloud_altitude": 3000,
+      "precipitation": "none",
+      "fog_mist": "none",
+      "is_active": true,
+      "created_at": "2026-08-20T18:43:23.000000Z",
+      "updated_at": "2026-08-20T18:43:23.000000Z"
+    },
+    {
+      "id": 6,
+      "area_name": "Sandy Shores",
+      "api_location": "Desert Shores",
+      "visibility": 10000,
+      "temperature": "20.0",
+      "wind_speed": 3,
+      "wind_direction": 141,
+      "cloud_cover": "overcast",
+      "cloud_altitude": 3000,
+      "precipitation": "none",
+      "fog_mist": "none",
+      "is_active": true,
+      "created_at": "2026-08-20T18:43:38.000000Z",
+      "updated_at": "2026-08-20T18:43:38.000000Z"
+    }
+  ],
+  "notams": [
+    {
+      "id": 8,
+      "notam_number": "NOTAM-2025-08-006",
+      "title": "FDC 3062",
+      "message": "City of Los Santos, San Andreas near Downtown Los Santos (DTLS)",
+      "url": "https://i.imgur.com/oWvxMRC.png",
+      "type": "airspace",
+      "priority": "urgent",
+      "airport_id": null,
+      "effective_from": "2026-03-15T16:30:31.000000Z",
+      "effective_until": "2099-12-31T23:59:59.000000Z",
+      "is_active": true,
+      "created_at": "2025-08-31T09:00:16.000000Z",
+      "updated_at": "2026-03-15T16:30:37.000000Z",
+      "airport": null
+    },
+    {
+      "id": 7,
+      "notam_number": "NOTAM-2025-08-005",
+      "title": "FDC 3062",
+      "message": "Los Santos County, San Andreas Bolingbroke Penitentiary (BO)",
+      "url": "https://i.imgur.com/Qcp9k8h.png",
+      "type": "airspace",
+      "priority": "urgent",
+      "airport_id": null,
+      "effective_from": "2026-03-15T17:07:22.000000Z",
+      "effective_until": "2099-12-31T23:59:59.000000Z",
+      "is_active": true,
+      "created_at": "2025-08-31T08:58:18.000000Z",
+      "updated_at": "2026-03-15T17:07:28.000000Z",
+      "airport": null
+    },
+    {
+      "id": 4,
+      "notam_number": "NOTAM-2025-08-002",
+      "title": "NOTAM-2025-08-002",
+      "message": "City of Los Santos, San Andreas Fort Zancudo (FZ)",
+      "url": "https://i.imgur.com/KQwKTxH.png",
+      "type": "airspace",
+      "priority": "urgent",
+      "airport_id": null,
+      "effective_from": "2026-03-15T17:10:49.000000Z",
+      "effective_until": "2099-12-31T23:59:59.000000Z",
+      "is_active": true,
+      "created_at": "2025-08-20T19:48:49.000000Z",
+      "updated_at": "2026-03-15T17:10:55.000000Z",
+      "airport": null
+    }
+  ]
+}
