@@ -251,6 +251,17 @@ const CTAF_CALLS = {
   ],
 };
 
+// With a controller, every step is request → instruction → readback (instructor feedback):
+// the departure direction is requested up front, the arrival requests what we'll actually do
+// (touch and go, with the departure afterwards), and the touch and go itself is a readback of
+// the clearance, not an "On final" announcement.
+const bound = (dir) => `${dir}bound`;
+const article = (word) => (/^[aeiou]/i.test(word) ? "an" : "a");
+const departureRequest = (c) => (c.leg?.patternWork ? `Request to remain in the ${c.pattern} pattern` : `Request ${bound(c.dir)} departure`);
+const repeatedWord = (c) => REPEATED[c.landingKey].toLowerCase();
+const centerInbound = (c) => `${capitalize(c.from)} of ${c.arr.shortName}${c.landmark ? ` over ${c.landmark}` : ""} at ${c.alt}`;
+const onwardDir = (c) => c.leg?.onwardDir || c.dir;
+
 const CENTER_CALLS = {
   clearance: (c) =>
     c.vfr
@@ -258,7 +269,7 @@ const CENTER_CALLS = {
           {
             id: "vfr-clearance",
             label: "VFR clearance",
-            text: center(c, `At ${c.spot} at ${c.dep.name}`, `Request VFR clearance to ${c.arr.name} at ${c.target}`),
+            text: center(c, `At ${c.spot} at ${c.dep.name}`, c.leg?.patternWork ? `Request VFR clearance at ${c.target}, ${departureRequest(c).toLowerCase()}` : `Request VFR clearance to ${c.arr.name} at ${c.target}, ${bound(c.dir)} departure`),
           },
         ]
       : [
@@ -287,7 +298,7 @@ const CENTER_CALLS = {
     {
       id: "ready",
       label: "Ready for departure",
-      text: center(c, c.hold ? `Holding short of ${c.hold} for ${c.rwy}` : `Holding short of ${c.rwy}`, "Ready for departure"),
+      text: center(c, c.hold ? `Holding short of ${c.hold} for ${c.rwy}` : `Holding short of ${c.rwy}`, "Ready for departure", c.vfr ? departureRequest(c) : null),
       next: "enroute",
     },
   ],
@@ -305,22 +316,48 @@ const CENTER_CALLS = {
     { id: "lower", label: "Request lower", text: center(c, overhead(c), "Request lower") },
   ],
   arrival: (c) => [
-    {
-      id: "inbound",
-      label: "Inbound for landing",
-      text: center(c, `Inbound from the ${c.from}${c.landmark ? ` over ${c.landmark}` : ""} at ${c.alt}`, `Request landing at ${c.arr.name}`),
-      next: "pattern",
-    },
+    c.landingKey === "full"
+      ? {
+          id: "inbound",
+          label: "Inbound for landing",
+          text: center(c, centerInbound(c), `Request full stop landing at ${c.arr.name}`),
+          next: "pattern",
+        }
+      : {
+          id: "inbound",
+          label: `Inbound, request ${repeatedWord(c)}`,
+          text: center(
+            c,
+            centerInbound(c),
+            `Request ${repeatedWord(c)} on ${c.rwy}${c.leg?.leaving ? ` and ${article(onwardDir(c))} ${bound(onwardDir(c))} departure afterwards` : c.leg && c.leg.count - c.leg.rep > 0 ? `, ${c.leg.count - c.leg.rep + 1} times` : ""}`
+          ),
+          next: "pattern",
+        },
   ],
-  pattern: (c) => [
-    {
-      id: "final",
-      label: "Final",
-      text: center(c, `${c.finalVerb} for ${c.rwy}`, c.vfr ? c.landing : null),
-      next: c.landingKey === "full" ? "taxiin" : undefined,
-    },
-    { id: "go-around", label: "Go around", text: center(c, `Going around ${c.rwy}`) },
-  ],
+  pattern: (c) =>
+    c.landingKey === "full"
+      ? [
+          {
+            id: "final",
+            label: "Final",
+            text: center(c, `${c.finalVerb} for ${c.rwy}`, c.vfr ? c.landing : null),
+            next: "taxiin",
+          },
+          { id: "go-around", label: "Go around", text: center(c, `Going around ${c.rwy}`) },
+        ]
+      : [
+          // Kept as "final": copying it counts one touch and go (…) of the plan.
+          {
+            id: "final",
+            label: `Readback: cleared ${repeatedWord(c)}`,
+            // A readback: the instruction first, our callsign last, no station name.
+            text: `${join([`Cleared ${repeatedWord(c)} ${c.rwy}`, c.leg?.leaving ? `Request ${bound(onwardDir(c))} departure` : null]).replace(/\.$/, "")}, ${c.callsign}.`,
+          },
+          c.leg?.leaving
+            ? { id: "depart-after", label: "Request departure after it", text: center(c, `Request ${bound(onwardDir(c))} departure`), next: "enroute" }
+            : { id: "another", label: `Request another ${repeatedWord(c)}`, text: center(c, `Remaining in the ${c.pattern} pattern`, `Request another ${repeatedWord(c)} ${c.rwy}`) },
+          { id: "go-around", label: "Go around", text: center(c, `Going around ${c.rwy}`) },
+        ],
   taxiin: (c) => [
     {
       id: "vacated",
@@ -435,7 +472,7 @@ const HELI_CTAF_CALLS = {
 const HELI_CENTER_CALLS = {
   clearance: (c) =>
     c.vfr
-      ? [{ id: "vfr-clearance", label: "VFR clearance", text: center(c, `At ${depLong(c)}`, `Request VFR clearance to ${arrLong(c)} at ${c.target}`) }]
+      ? [{ id: "vfr-clearance", label: "VFR clearance", text: center(c, `At ${depLong(c)}`, `Request VFR clearance to ${arrLong(c)} at ${c.target}, ${bound(c.dir)} departure`) }]
       : CENTER_CALLS.clearance(c),
   ground: (c) =>
     c.depPoint === "runway"
