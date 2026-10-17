@@ -31,11 +31,24 @@ export const softkeyClass = (active, tone = "cyan") => {
     cyan: "border-av-cyan text-av-cyan bg-av-cyan/10 shadow-[0_0_12px_rgba(61,220,245,0.18)]",
     magenta: "border-av-magenta text-av-magenta bg-av-magenta/10 shadow-[0_0_12px_rgba(230,76,246,0.2)]",
     green: "border-av-green text-av-green bg-av-green/10",
+    amber: "border-av-amber text-av-amber bg-av-amber/15 shadow-[0_0_12px_rgba(255,178,36,0.25)]",
   };
   return `font-avmono font-bold rounded border transition-colors duration-100 disabled:opacity-30 disabled:cursor-not-allowed ${
-    active ? tones[tone] : "border-av-line bg-av-panel2 text-av-dim hover:text-av-text hover:border-av-dim/60"
+    active ? tones[tone] : "border-av-dim/45 bg-av-panel2 text-av-text/85 hover:text-av-cyan hover:border-av-cyan/70"
   }`;
 };
+
+// Buttons that change the flight itself (new flight, edit the plan, next stop) and the map
+// options: amber so they stand out from the cyan choices, and never mistaken for MAYDAY red.
+// "primary" is filled, "secondary" outlined; `on` lights an outlined toggle up.
+export const actionClass = (kind = "secondary", on = false) =>
+  `font-avmono font-bold uppercase tracking-wider rounded border-2 transition-colors duration-100 disabled:opacity-30 disabled:cursor-not-allowed ${
+    kind === "primary"
+      ? "border-av-amber bg-av-amber text-black hover:bg-[#ffc457] shadow-[0_0_14px_rgba(255,178,36,0.35)]"
+      : on
+        ? "border-av-amber bg-av-amber/25 text-av-amber shadow-[0_0_12px_rgba(255,178,36,0.3)]"
+        : "border-av-amber/70 bg-av-amber/5 text-av-amber hover:bg-av-amber/20"
+  }`;
 
 // Softkey row. `badge` lets an option carry a hint (★ into the wind, closed…).
 export function ChipGroup({ label, options, value, onChange, size = "md", tone = "cyan" }) {

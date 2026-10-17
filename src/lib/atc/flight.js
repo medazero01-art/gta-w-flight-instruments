@@ -1,5 +1,6 @@
 import { AIRFIELDS } from "./airfields";
 import { PHASES } from "./phases";
+import { changedChoices, defaultPlan, legFields, samePlace, sanitizePlan, stopType } from "./plan";
 
 const byAirport = (airports, pick) =>
   Object.fromEntries(Object.values(airports).map((airport) => [airport.icao, pick(airport)]));
@@ -64,6 +65,8 @@ export const defaultFlight = (airfields = AIRFIELDS.en) => ({
   purpose: "parking",
   planDest: "",
   mission: "",
+  // The stops of the flight and the route drawn between them (see lib/atc/plan.js).
+  plan: defaultPlan(),
 });
 
 export const isHeli = (flight) => flight.aircraft === "helicopter";
@@ -94,10 +97,52 @@ export function firstPhase(flight) {
 }
 
 export function withPhase(flight, phaseId) {
-  return { ...flight, phase: phaseId, calling: callingForPhase(phaseId, flight), via: [] };
+  const next = { ...flight, phase: phaseId, calling: callingForPhase(phaseId, flight), via: [] };
+  // Pattern work ends where it started: after landing, taxi to the parking chosen for this stop.
+  const stop = flight.plan?.stops[flight.plan.leg];
+  if (phaseId === "taxiin" && stop?.spot) next.spots = { ...flight.spots, [stop.icao]: stop.spot };
+  return next;
 }
 
 export const radarIds = (flight) => [flight.registration, flight.callsign].filter(Boolean);
+
+// The flight as it is on the current leg of its plan, from the first phase of that leg.
+function onLeg(flight, airports, phase, choices) {
+  const next = { ...flight, ...legFields(flight, airports, choices) };
+  const first = phase || firstPhase(next);
+  return { ...next, phase: first, calling: callingForPhase(first, next), via: [], hold: "" };
+}
+
+// A new flight from the plan dialog: the pilot's identity and preferences, the new plan.
+export function startPlan(flight, settings, plan, airfields) {
+  // Runways and parkings used last time stay the default wherever the plan leaves them blank.
+  const next = { ...newFlight({ ...flight, ...settings }, airfields), runways: flight.runways, spots: flight.spots };
+  return onLeg({ ...next, plan: { ...plan, leg: 1, reps: 0 } }, airfields.airports);
+}
+
+// The plan edited during the flight: we stay on the stop we were flying to (when it is still
+// in the plan) and in the same phase.
+export function editPlan(flight, settings, plan, airports) {
+  const current = flight.plan.stops[flight.plan.leg]?.id;
+  const kept = plan.stops.findIndex((s) => s.id === current);
+  const leg = kept >= 1 ? kept : Math.min(flight.plan.leg, plan.stops.length - 1);
+  const next = { ...flight, ...settings, plan: { ...plan, leg, reps: kept >= 1 ? flight.plan.reps : 0 } };
+  const onLegNow = { ...next, ...legFields(next, airports, "none"), ...changedChoices(flight.plan, plan, flight.runways, flight.spots) };
+  return { ...onLegNow, calling: callingForPhase(flight.phase, onLegNow) };
+}
+
+// The stop we were flying to is done: on to the next leg. After a full stop the next leg starts
+// on the ground; after a touch and go (…) we are already flying it.
+export function advanceLeg(flight, airports) {
+  const { stops, leg } = flight.plan;
+  if (leg >= stops.length - 1) return flight;
+  const landed = stopType(stops[leg], isHeli(flight)) === "full";
+  const next = { ...flight, plan: { ...flight.plan, leg: leg + 1, reps: 0 } };
+  if (landed) return onLeg(next, airports, undefined, "arrival");
+  return onLeg(next, airports, samePlace(stops[leg], stops[leg + 1]) ? "pattern" : "enroute", "arrival");
+}
+
+export const isLastLeg = (flight) => flight.plan.leg >= flight.plan.stops.length - 1;
 
 // A new flight keeps the pilot's identity and preferences, resets everything else.
 export function newFlight(flight, airfields) {
@@ -122,13 +167,19 @@ export function restoreFlight(saved, airfields = AIRFIELDS.en) {
   for (const [icao, rwy] of Object.entries((sameAirfields && saved.runways) || {})) {
     if (airfields.airports[icao]?.runwayEnds.some((end) => end.id === rwy)) runways[icao] = rwy;
   }
+  const dep = airfields.airports[saved.dep] ? saved.dep : base.dep;
+  const arr = airfields.airports[saved.arr] ? saved.arr : base.arr;
   return {
     ...base,
     ...saved,
     airfields: airfields.version,
+    dep,
+    arr,
     runways,
     spots: { ...base.spots, ...(sameAirfields ? saved.spots : {}) },
     via: Array.isArray(saved.via) ? saved.via : [],
     finalVerb: saved.finalVerb === "turning" ? "turning" : "on",
+    // Flights saved before plans existed become a two-stop plan.
+    plan: sanitizePlan(saved.plan, airfields.airports, defaultPlan(dep, arr)),
   };
 }

@@ -1,6 +1,7 @@
 import { AIRPORTS } from "../france";
 import { heliPoint } from "../flight";
 import { contextAirport, displayCallsign } from "../phases";
+import { legInfo } from "../plan";
 
 // GTA World France, from the server's ATC guide. There is no live controller: the pilot
 // announces each step, in the present tense with "nous", in short sentences:
@@ -14,8 +15,10 @@ export const callingLabel = (airport) => (airport ? airport.code : STATION);
 export const comLabel = () => "ATC";
 // NVFR: VFR de nuit.
 export const FLIGHT_RULES = ["VFR", "NVFR", "IFR"];
-// No traffic pattern calls on GTA World France.
+// No traffic pattern calls on GTA World France: the touch and go (…) of the flight plan are
+// announced in the final call, with where we go next.
 export const LANDING_TYPES = [];
+const REPEATED = { touch: "touch and go", stop: "stop and go", low: "passage bas" };
 export const FINAL_TYPES = [];
 
 export const MAYDAY_SITUATIONS = ["Panne moteur totale", "Panne moteur partielle", "Feu à bord", "Feu moteur", "Dommages structurels"];
@@ -75,8 +78,11 @@ function buildContext(flight) {
   const dest = flight.planDest.trim() || (heliSite ? arrSite : arr.code);
   const mission = flight.mission.trim();
   const target = formatAltitude(flight.target);
+  const leg = legInfo(flight, AIRPORTS);
 
   return {
+    repeated: flight.landing !== "full" && REPEATED[flight.landing],
+    leg,
     who,
     to: flight.calling === "SA" ? STATION : AIRPORTS[flight.calling].code,
     dep,
@@ -171,7 +177,13 @@ const PLANE_CALLS = {
     { id: "approach", label: "Approche", text: atc(c, [`nous sommes en approche pour atterrissage en ${c.rwy}`], RECONTACT), next: "pattern" },
   ],
   pattern: (c) => [
-    { id: "final", label: "Piste en vue, atterrissage imminent", text: atc(c, ["piste en vue et alignés", `atterrissage sur ${c.rwy} imminent`]), next: "taxiin" },
+    c.repeated
+      ? {
+          id: "final",
+          label: `Piste en vue, ${c.repeated}`,
+          text: atc(c, ["piste en vue et alignés", `${c.repeated} en ${c.rwy}`, c.leg?.leaving ? `puis direction ${c.leg.onwardCode}` : "nous restons dans le circuit"]),
+        }
+      : { id: "final", label: "Piste en vue, atterrissage imminent", text: atc(c, ["piste en vue et alignés", `atterrissage sur ${c.rwy} imminent`]), next: "taxiin" },
     { id: "go-around", label: "Remise de gaz", text: atc(c, ["nous remettons les gaz"], RECONTACT) },
   ],
   taxiin: (c) => [

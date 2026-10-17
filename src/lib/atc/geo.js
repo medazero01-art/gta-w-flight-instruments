@@ -1,19 +1,28 @@
 // Image <-> GTA world transforms (world: meters, +x east, +y north).
 
-// public/maps/gtav.jpg (2048x2048). Calibrated against the game's zone boxes
-// (airport, Fort Zancudo, Bolingbroke, Land Act Reservoir, docks…): ~6 m per pixel,
-// world origin at pixel (930, 1388), accurate to a pixel or two.
-export const GTA_MAP = {
-  src: "/maps/gtav.jpg",
-  size: 2048,
-  metersPerPx: 6,
-  originPx: { x: 930, y: 1388 },
+// Satellite map of the island, 5944x8075 at 1.5 m per pixel, world origin at pixel
+// (2548, 5500). Registered against the previous atlas map (calibrated on the game's zone
+// boxes) by matching coastlines, then checked on the three runways below.
+// Served as a pyramid of 512px WebP tiles: public/maps/sat/{z}/{x}_{y}.webp, z = 0 (12 m/px)
+// to 3 (full resolution), so only what is on screen at the right sharpness gets loaded.
+export const SAT_MAP = {
+  width: 5944,
+  height: 8075,
+  metersPerPx: 1.5,
+  originPx: { x: 2548, y: 5500 },
+  tileSize: 512,
+  levels: [
+    { width: 743, height: 1009 },
+    { width: 1486, height: 2019 },
+    { width: 2972, height: 4038 },
+    { width: 5944, height: 8075 },
+  ],
 };
 
 // World rectangle covered by the map image, for placing it in world-space SVG.
 export const mapWorldBounds = () => {
-  const { size, metersPerPx: s, originPx: o } = GTA_MAP;
-  return { left: -o.x * s, right: (size - o.x) * s, top: o.y * s, bottom: (o.y - size) * s, width: size * s, height: size * s };
+  const { width, height, metersPerPx: s, originPx: o } = SAT_MAP;
+  return { left: -o.x * s, right: (width - o.x) * s, top: o.y * s, bottom: (o.y - height) * s, width: width * s, height: height * s };
 };
 
 // Airport diagrams. Each is a similarity transform defined by one anchor pair, a scale and

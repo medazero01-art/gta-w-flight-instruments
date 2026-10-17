@@ -5,6 +5,7 @@ import { ALTITUDES, DIRECTIONS, LANDMARKS } from "@/lib/atc/airports";
 import { closedRunwayEnds, recommendedRunway, weatherFor } from "@/lib/atc/briefing";
 import { ATC_PREFIX, CHAT_LIMIT, PHASES, contextAirport } from "@/lib/atc/phases";
 import { callingForPhase, heliPoint, isHeli } from "@/lib/atc/flight";
+import { withStop } from "@/lib/atc/plan";
 import { useEdition } from "./EditionContext";
 import { ChipGroup, FieldLabel, Panel, TextInput, softkeyClass } from "./ui";
 
@@ -315,7 +316,15 @@ function Controls({ flight, update, saaaData, route }) {
       />
     ),
     final: () => <ChipGroup label={t("Final call")} options={ph.FINAL_TYPES} value={flight.finalVerb} onChange={(finalVerb) => update({ finalVerb })} />,
-    landing: () => <ChipGroup label={t("Landing")} options={ph.LANDING_TYPES} value={flight.landing} onChange={(landing) => update({ landing })} />,
+    // The plan follows: the stop we're flying to changes too.
+    landing: () => (
+      <ChipGroup
+        label={t("Landing")}
+        options={ph.LANDING_TYPES}
+        value={flight.landing}
+        onChange={(landing) => update({ landing, plan: withStop(flight.plan, flight.plan.leg, { type: landing, point: "runway" }) })}
+      />
+    ),
     // GTA World France: what we do at the stand, flight plan destination and mission, new destination.
     purpose: () => (
       <ChipGroup
@@ -347,7 +356,9 @@ function Controls({ flight, update, saaaData, route }) {
         size="sm"
         options={Object.values(airports).map((a) => ({ value: a.icao, label: a.code, title: a.name }))}
         value={flight.arr}
-        onChange={(arr) => update({ arr, calling: callingForPhase(flight.phase, { ...flight, arr }) })}
+        onChange={(arr) =>
+          update({ arr, calling: callingForPhase(flight.phase, { ...flight, arr }), plan: withStop(flight.plan, flight.plan.leg, { icao: arr, site: null }) })
+        }
       />
     ),
     route: () =>
@@ -417,7 +428,7 @@ function CallCard({ call, index, copied, onCopy }) {
 }
 
 // Radar-only (GTA World): airspace alerts and phase suggestions.
-function RadarHints({ alerts, suggestions, setPhase }) {
+function RadarHints({ alerts, suggestions, setPhase, onNextStop }) {
   if (alerts.length === 0 && suggestions.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -435,9 +446,9 @@ function RadarHints({ alerts, suggestions, setPhase }) {
       ))}
       {suggestions.map((s) => (
         <button
-          key={s.phase}
+          key={s.phase || "next-stop"}
           type="button"
-          onClick={() => setPhase(s.phase)}
+          onClick={() => (s.advance ? onNextStop() : setPhase(s.phase))}
           className="w-full rounded border border-av-green/50 bg-av-green/10 px-3 py-1.5 text-left font-avmono text-[12px] text-av-green hover:bg-av-green/20"
         >
           📡 {s.text} <span className="font-bold underline">GO</span>
@@ -447,7 +458,7 @@ function RadarHints({ alerts, suggestions, setPhase }) {
   );
 }
 
-export default function CallsPanel({ flight, update, setPhase, calls, copiedKey, onCopyCall, saaaData, route, alerts = [], suggestions = [], radarSynced, readback }) {
+export default function CallsPanel({ flight, update, setPhase, calls, copiedKey, onCopyCall, saaaData, route, alerts = [], suggestions = [], radarSynced, readback, onNextStop }) {
   const { edition, t, ph } = useEdition();
   // No clearance to ask for without a controller station.
   const phases = edition.center ? PHASES : PHASES.filter((p) => p.id !== "clearance");
@@ -457,7 +468,7 @@ export default function CallsPanel({ flight, update, setPhase, calls, copiedKey,
   const tip = ph.tip ? ph.tip(flight) : rotor && { icon: "🚁", text: t(rotor), source: t("SAAA Rotorcraft Syllabus") };
   return (
     <div className="space-y-3">
-      <RadarHints alerts={alerts} suggestions={suggestions} setPhase={setPhase} />
+      <RadarHints alerts={alerts} suggestions={suggestions} setPhase={setPhase} onNextStop={onNextStop} />
 
       <Panel title={t("Flight phase")} bodyClassName="p-2">
         <nav className="flex flex-wrap items-center gap-1" aria-label={t("Flight phase")}>

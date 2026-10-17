@@ -1,6 +1,7 @@
 import { AIRPORTS } from "./airports";
 import { bearing, cardinal, distance, formatNm, roundAltitude } from "./radar";
 import { PHASES } from "./phases";
+import { isRepeated, samePlace, stopLabel, stopPosition } from "./plan";
 
 const ARRIVAL_SUGGEST_M = 3000;
 
@@ -34,6 +35,13 @@ export function radarSuggestions(flight, own) {
   }
   if (!own.airborne && own.atAirport?.icao === flight.arr && ["arrival", "pattern"].includes(flight.phase) && (own.speedKt ?? 0) < 40) {
     suggestions.push({ phase: "taxiin", text: `On the ground at ${arr.shortName}: ${phase("taxiin")}?` });
+  }
+  // Flying away from a stop where the touch and go (…) are done: on to the next stop.
+  const { plan } = flight;
+  const stop = plan?.stops[plan.leg];
+  const after = plan?.stops[plan.leg + 1];
+  if (own.airborne && stop && after && !samePlace(stop, after) && plan.reps > 0 && isRepeated(stop, flight.aircraft === "helicopter") && distance(own, stopPosition(stop, AIRPORTS)) > ARRIVAL_SUGGEST_M) {
+    suggestions.push({ advance: true, text: `Leaving ${stopLabel(stop, AIRPORTS)}: next stop ${stopLabel(after, AIRPORTS)}?` });
   }
   return suggestions;
 }

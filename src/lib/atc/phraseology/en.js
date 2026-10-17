@@ -1,5 +1,6 @@
 import { AIRPORTS } from "../airports";
 import { contextAirport, displayCallsign, joinSentences as join } from "../phases";
+import { legInfo } from "../plan";
 
 // GTA World (English). Calls follow the SAAA ATC guide:
 // CTAF   -> [Who calling] Traffic. [Who you are]. [Where]. [What]. [Who calling].
@@ -18,7 +19,10 @@ export const LANDING_TYPES = [
   { value: "full", label: "Full stop" },
   { value: "touch", label: "Touch & go" },
   { value: "stop", label: "Stop & go" },
+  { value: "low", label: "Low approach" },
 ];
+
+const REPEATED = { touch: "Touch and go", stop: "Stop and go", low: "Low approach" };
 
 export const FINAL_TYPES = [
   { value: "on", label: "On final" },
@@ -89,11 +93,14 @@ function buildContext(flight) {
   if (flight.formation) who += `, flight of ${flight.formationCount} ${flight.formationType.trim() || "aircraft"}`;
 
   const pattern = flight.pattern;
-  const landing = {
-    full: "Full stop",
-    touch: `Touch and go, remaining in the ${pattern} pattern`,
-    stop: `Stop and go, remaining in the ${pattern} pattern`,
-  }[flight.landing];
+  // With a plan, the last touch and go (…) before flying on says where we go next.
+  const leg = legInfo(flight, AIRPORTS);
+  const landing =
+    flight.landing === "full"
+      ? "Full stop"
+      : leg?.leaving
+        ? `${REPEATED[flight.landing]}, then departing to the ${leg.onwardDir || flight.dir} towards ${leg.onwardName}`
+        : `${REPEATED[flight.landing] || "Touch and go"}, remaining in the ${pattern} pattern`;
 
   return {
     center: flight.mode === "CENTER",
@@ -132,6 +139,7 @@ function buildContext(flight) {
     depPoint: flight.depPoint,
     arrPoint: flight.arrPoint,
     autoSite: flight.autoSite.trim(),
+    leg,
   };
 }
 
@@ -154,20 +162,22 @@ const CTAF_CALLS = {
       next: "departure",
     },
   ],
-  departure: (c) => [
-    {
-      id: "takeoff",
-      label: "Takeoff, departing",
-      text: ctaf(c, `Entering ${c.rwy} for departure`, `Departing to the ${c.dir}`, `Climbing and maintaining ${c.target}`),
-      next: "enroute",
-    },
-    {
-      id: "takeoff-pattern",
-      label: "Takeoff, staying in the pattern",
-      text: ctaf(c, `Entering ${c.rwy} for departure`, `Remaining in the ${c.pattern} traffic pattern`),
-      next: "pattern",
-    },
-  ],
+  departure: (c) =>
+    [
+      {
+        id: "takeoff",
+        label: "Takeoff, departing",
+        text: ctaf(c, `Entering ${c.rwy} for departure`, `Departing to the ${c.dir}`, `Climbing and maintaining ${c.target}`),
+        next: "enroute",
+      },
+      {
+        id: "takeoff-pattern",
+        label: "Takeoff, staying in the pattern",
+        text: ctaf(c, `Entering ${c.rwy} for departure`, `Remaining in the ${c.pattern} traffic pattern`),
+        next: "pattern",
+      },
+      // The plan tells whether we stay in the pattern or fly away: only that call is shown.
+    ].filter((call) => !c.leg || (call.id === "takeoff-pattern") === c.leg.patternWork),
   enroute: (c) => [
     {
       id: "position",
@@ -218,12 +228,19 @@ const CTAF_CALLS = {
       label: "Go around",
       text: ctaf(c, `Going around ${c.rwy}`, `Remaining in the ${c.pattern} pattern`),
     },
-    {
-      id: "leave-pattern",
-      label: "Leaving the pattern",
-      text: ctaf(c, `Departing the pattern to the ${c.dir}`, altitudeChange(c)),
-      next: "enroute",
-    },
+    // With a plan, only once the touch and go (…) here are done and the next stop is elsewhere.
+    ...(!c.leg || c.leg.leaving
+      ? [
+          {
+            id: "leave-pattern",
+            label: "Leaving the pattern",
+            text: c.leg
+              ? ctaf(c, `Departing the pattern to the ${c.leg.onwardDir || c.dir} towards ${c.leg.onwardName}`, altitudeChange(c))
+              : ctaf(c, `Departing the pattern to the ${c.dir}`, altitudeChange(c)),
+            next: "enroute",
+          },
+        ]
+      : []),
   ],
   taxiin: (c) => [
     {

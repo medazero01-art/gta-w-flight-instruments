@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ATC_PREFIX, contextAirport } from "@/lib/atc/phases";
-import { defaultFlight, heliPoint, isHeli, newFlight, radarIds, restoreFlight, withPhase } from "@/lib/atc/flight";
-import { cardinalAbbr, isOwnAircraft } from "@/lib/atc/radar";
+import { advanceLeg, defaultFlight, editPlan, heliPoint, isHeli, isLastLeg, radarIds, restoreFlight, startPlan, withPhase } from "@/lib/atc/flight";
+import { STOP_TYPE_LABELS, isRepeated, stopLabel, stopType } from "@/lib/atc/plan";
+import { bearing, cardinalAbbr, distance, isOwnAircraft } from "@/lib/atc/radar";
+import { createMotionTracker } from "@/lib/atc/motion";
 import { radarPatch, radarSuggestions } from "@/lib/atc/radarSync";
 import { airspaceAlerts } from "@/lib/atc/airspace";
 import { analyzeFeed } from "@/lib/atc/feed";
@@ -12,17 +14,19 @@ import { calibrateChart, worldToChart } from "@/lib/atc/geo";
 import { nearestNode, taxiRoute } from "@/lib/atc/taxi";
 import { storageKey } from "@/lib/editions";
 import { EditionProvider, useEdition } from "./EditionContext";
-import { Readout, useCopy } from "./ui";
+import { Readout, actionClass, useCopy } from "./ui";
+import { useIsomorphicLayoutEffect } from "./paint";
 import { useSaaaBriefing } from "./useSaaaBriefing";
 import { useRadar } from "./useRadar";
-import FlightSetup from "./FlightSetup";
+import PlanPanel from "./PlanPanel";
 import Briefing from "./Briefing";
 import CallsPanel from "./CallsPanel";
 import ReadbackPanel from "./ReadbackPanel";
 import EmergencyPanel from "./EmergencyPanel";
-import MfdPanel from "./MfdPanel";
+import NavPanel from "./NavPanel";
+import ChartPanel from "./ChartPanel";
 import AtcFeed from "./AtcFeed";
-import PreflightDialog from "./PreflightDialog";
+import FlightPlanDialog from "./FlightPlanDialog";
 
 const isTyping = (el) => el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 // A controller message older than this is history, not something to read back now.
@@ -59,7 +63,7 @@ function Deck() {
     () => ({
       flight: storageKey(edition, "flight:v1"),
       charts: storageKey(edition, "charts:v1"),
-      // Set once the preflight is done: the dialog comes back with the next browser session, not on reload.
+      // Set once the plan dialog is closed: it comes back with the next browser session, not on reload.
       preflight: storageKey(edition, "preflight-done"),
     }),
     [edition]
@@ -70,7 +74,10 @@ function Deck() {
   const [hydrated, setHydrated] = useState(false);
   const [emergency, setEmergency] = useState(null);
   const [incoming, setIncoming] = useState(null);
-  const [preflight, setPreflight] = useState(false);
+  // The flight plan dialog: null, "choose" (resume or new flight), "new" or "edit".
+  const [dialog, setDialog] = useState(null);
+  // Leg whose stop looks done: a small card offers to go on to the next stop.
+  const [prompt, setPrompt] = useState(null);
   const autoReadbackId = useRef(null);
   const { copiedKey, copy } = useCopy();
   // radar.gta.world and saaa.gta.world belong to GTA World: the France edition never calls them.
@@ -92,32 +99,33 @@ function Deck() {
     } catch {
       // Session storage blocked: ask every time, it is only one dialog.
     }
-    setPreflight(!done);
+    if (!done) setDialog(restored.callsign ? "choose" : "new");
     setHydrated(true);
   }, [keys, edition.radar, edition.center, airfields]);
 
-  const closePreflight = useCallback(() => {
+  const closeDialog = useCallback(() => {
     try {
       sessionStorage.setItem(keys.preflight, "1");
     } catch {
       // See above.
     }
-    setPreflight(false);
+    setDialog(null);
   }, [keys]);
 
-  // A fresh flight from the preflight answers. Spots and runways used elsewhere are kept for next time.
-  const startFlight = (draft) => {
-    const { spot, runway, arrSpot, arrRunway, ...plan } = draft;
-    setFlight((f) => {
-      const next = newFlight({ ...f, ...plan }, airfields);
-      return {
-        ...next,
-        spots: { ...f.spots, [plan.arr]: arrSpot || f.spots[plan.arr], [plan.dep]: spot || f.spots[plan.dep] },
-        runways: { ...f.runways, [plan.arr]: arrRunway || f.runways[plan.arr], [plan.dep]: runway },
-      };
-    });
-    closePreflight();
+  // A fresh flight from the plan dialog. Spots and runways used elsewhere are kept for next time.
+  const startFlight = (settings, plan) => {
+    setFlight((f) => startPlan(f, settings, plan, airfields));
+    setPrompt(null);
+    closeDialog();
   };
+  const savePlan = (settings, plan) => {
+    setFlight((f) => editPlan(f, settings, plan, airports));
+    closeDialog();
+  };
+  const nextStop = useCallback(() => {
+    setFlight((f) => advanceLeg(f, airports));
+    setPrompt(null);
+  }, [airports]);
 
   useEffect(() => {
     if (hydrated) writeJson(keys.flight, flight);
@@ -148,6 +156,19 @@ function Deck() {
   const radar = useRadar({ enabled: hydrated && edition.radar && flight.radarOn, ids });
   const aircraft = radar.snapshot?.aircraft;
   const own = useMemo(() => aircraft?.find((a) => isOwnAircraft(a, ids)) || null, [aircraft, ids]);
+  // Dead reckoning between radar samples, shared by the map and the airport chart.
+  const [tracker] = useState(createMotionTracker);
+  useIsomorphicLayoutEffect(() => {
+    if (radar.snapshot) tracker.ingest(radar.snapshot.aircraft, radar.snapshot.fetchedAt, performance.now());
+  }, [radar.snapshot, tracker]);
+  const contextIcao = contextAirport(flight);
+  const traffic = useMemo(() => {
+    const center = own || airports[contextIcao].position;
+    return (aircraft || [])
+      .filter((a) => a !== own)
+      .map((a) => ({ ...a, distanceM: distance(center, a), fromCenter: bearing(center, a) }))
+      .sort((a, b) => a.distanceM - b.distanceM);
+  }, [aircraft, own, airports, contextIcao]);
 
   // Altitude, place, heading and inbound direction follow the radar while auto-fill is on.
   useEffect(() => {
@@ -209,14 +230,26 @@ function Deck() {
     (call) => {
       copy(call.channel === "atc" ? `${ATC_PREFIX}${call.text}` : call.text, `call-${call.id}`);
       if (flight.autoAdvance && call.next) setPhase(call.next);
+      // Counting the touch and go (…) of this stop; the last one, or the last call after a
+      // full stop on the way, offers to go on to the next stop.
+      const { plan } = flight;
+      const stop = plan.stops[plan.leg];
+      if (isLastLeg(flight)) return;
+      if (call.id === "final" && flight.phase === "pattern" && isRepeated(stop, isHeli(flight))) {
+        const reps = plan.reps + 1;
+        setFlight((f) => ({ ...f, plan: { ...f.plan, reps } }));
+        if (reps >= stop.count) setPrompt(plan.leg);
+      } else if (flight.phase === "taxiin" && call.id === calls[calls.length - 1]?.id) {
+        setPrompt(plan.leg);
+      }
     },
-    [copy, flight.autoAdvance, setPhase]
+    [copy, flight, calls, setPhase]
   );
 
   // Number keys copy the matching call when no field is focused.
   useEffect(() => {
     const onKey = (e) => {
-      if (emergency || preflight || isTyping(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (emergency || dialog || isTyping(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
       const n = Number(e.key);
       if (!n) return;
       const call = calls[n - 1];
@@ -227,7 +260,7 @@ function Deck() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [calls, copyCall, emergency, preflight]);
+  }, [calls, copyCall, emergency, dialog]);
 
   const pickRunway = (icao, rwy) => update({ runways: { ...flight.runways, [icao]: rwy } });
 
@@ -291,7 +324,14 @@ function Deck() {
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden font-avmono text-[11px] text-av-dim xl:inline">
             {isHeli(flight) && <span className="mr-1 text-av-magenta">🚁 {flight.heliRole === "civil" ? "HELI" : flight.heliRole.toUpperCase()} ·</span>}
-            <span className="text-av-cyan">{flight.callsign || t("[CALLSIGN]")}</span> · {airports[flight.dep].code} ▸ {airports[flight.arr].code} · {flight.rules}
+            <span className="text-av-cyan">{flight.callsign || t("[CALLSIGN]")}</span> ·{" "}
+            {flight.plan.stops.map((s, i) => (
+              <span key={s.id} className={i === flight.plan.leg ? "font-bold text-av-magenta" : i < flight.plan.leg - 1 ? "text-av-mute" : ""}>
+                {i > 0 && " ▸ "}
+                {stopLabel(s, airports)}
+              </span>
+            ))}{" "}
+            · {flight.rules}
           </span>
           {[
             { kind: "pan", label: "PAN-PAN", cls: "border-av-amber text-av-amber hover:bg-av-amber/20" },
@@ -313,7 +353,13 @@ function Deck() {
       <main className="relative z-10 flex-1 overflow-y-auto p-3 xl:overflow-hidden">
         <div className="grid grid-cols-1 gap-3 xl:h-full xl:grid-cols-[330px_minmax(0,1fr)_minmax(400px,500px)]">
           <div className="space-y-3 xl:overflow-y-auto xl:pr-1">
-            <FlightSetup key={hydrated ? "restored" : "initial"} flight={flight} update={update} onNewFlight={() => setFlight(newFlight(flight, airfields))} />
+            <PlanPanel
+              flight={flight}
+              update={update}
+              onNewFlight={() => setDialog(flight.callsign ? "choose" : "new")}
+              onEdit={() => setDialog("edit")}
+              onNextStop={nextStop}
+            />
             {edition.saaa && <Briefing flight={flight} saaa={saaa} onUseRunway={pickRunway} />}
             {edition.radar && <AtcFeed feed={feed} flight={flight} update={update} onUseForReadback={(m) => setIncoming({ ...m })} />}
           </div>
@@ -331,32 +377,95 @@ function Deck() {
               alerts={alerts}
               suggestions={suggestions}
               radarSynced={Boolean(own && flight.radarSync)}
+              onNextStop={nextStop}
               readback={<ReadbackPanel flight={flight} copiedKey={copiedKey} copy={copy} incoming={incoming} />}
             />
           </div>
 
-          <div className="xl:overflow-y-auto xl:pr-1">
-            <MfdPanel
+          <div className="space-y-3 xl:overflow-y-auto xl:pr-1">
+            <NavPanel flight={flight} update={update} radar={radar} own={own} traffic={traffic} tracker={tracker} />
+            <ChartPanel
               flight={flight}
               update={update}
-              radar={radar}
               own={own}
+              traffic={traffic}
               route={route}
-              contextIcao={contextAirport(flight)}
+              contextIcao={contextIcao}
               geoFor={geoFor}
               calibrated={chartCal}
               onCalibrate={onCalibrate}
               onResetCalibration={onResetCalibration}
               saaaData={saaa.data}
+              tracker={tracker}
             />
           </div>
         </div>
       </main>
 
-      {hydrated && preflight && <PreflightDialog flight={flight} saaaData={saaa.data} onStart={startFlight} onResume={closePreflight} />}
+      {hydrated && prompt === flight.plan.leg && !dialog && !emergency && <StopPrompt flight={flight} onNext={nextStop} onDismiss={() => setPrompt(null)} />}
+      {hydrated && dialog && (
+        <FlightPlanDialog
+          key={dialog}
+          mode={dialog}
+          flight={flight}
+          saaaData={saaa.data}
+          onStart={startFlight}
+          onSave={savePlan}
+          onResume={closeDialog}
+          onClose={closeDialog}
+        />
+      )}
       {emergency && (
         <EmergencyPanel key={emergency} kind={emergency} flight={flight} update={update} copiedKey={copiedKey} copy={copy} onClose={() => setEmergency(null)} />
       )}
+    </div>
+  );
+}
+
+// The stop looks done (last touch and go copied, or parked after a full stop on the way):
+// one click goes on to the next stop. Never automatic.
+function StopPrompt({ flight, onNext, onDismiss }) {
+  const { t, airports } = useEdition();
+  const { plan } = flight;
+  const stop = plan.stops[plan.leg];
+  const next = plan.stops[plan.leg + 1];
+  const heli = isHeli(flight);
+  const type = stopType(stop, heli);
+  const nextType = stopType(next, heli);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onDismiss();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onDismiss]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label={t("Stop done?")}
+      className="fixed bottom-4 left-1/2 z-40 w-[min(92vw,440px)] -translate-x-1/2 rounded-md border-2 border-av-amber bg-av-panel p-3 shadow-[0_18px_50px_rgba(0,0,0,0.7)]"
+    >
+      <div className="font-avmono text-[10px] font-bold uppercase tracking-[0.18em] text-av-amber">{t("Stop done?")}</div>
+      <div className="mt-1 font-avmono text-[15px] font-bold text-av-text">
+        {stopLabel(stop, airports)} ✓{" "}
+        <span className="text-[12px] font-normal text-av-dim">
+          {t(STOP_TYPE_LABELS[type])}
+          {type !== "full" ? ` ${Math.min(plan.reps, stop.count)}/${stop.count}` : ""}
+        </span>
+      </div>
+      <div className="font-avmono text-[12px] text-av-dim">
+        {t("Next: {stop}", { stop: stopLabel(next, airports) })} · {t(STOP_TYPE_LABELS[nextType])}
+        {nextType !== "full" && next.count > 1 ? ` ×${next.count}` : ""}
+        {next.route.length > 0 ? ` · ${next.route.length} WP` : ""}
+      </div>
+      <div className="mt-2.5 flex gap-2">
+        <button type="button" autoFocus onClick={onNext} className={`flex-1 px-3 py-2 text-[11px] ${actionClass("primary")}`}>
+          {t("Next stop ▸")}
+        </button>
+        <button type="button" onClick={onDismiss} className={`px-3 py-2 text-[11px] ${actionClass()}`}>
+          {t("Not yet · Esc")}
+        </button>
+      </div>
     </div>
   );
 }
